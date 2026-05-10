@@ -1,16 +1,16 @@
-# Compiled class file
-*.class
+# ============================================================
+# CodeRank — .gitignore
+# ============================================================
 
-# Log file
-*.log
+# ----- Project-specific exclusions -----
+Code_builder.py
+codebase_context.txt
 
-# BlueJ files
-*.ctxt
-
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
-
-# Package Files #
+# ----- Maven -----
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
 *.jar
 *.war
 *.nar
@@ -19,6 +19,54 @@
 *.tar.gz
 *.rar
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
-replay_pid*
+# ----- IntelliJ IDEA -----
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+# ----- Eclipse -----
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+# ----- VS Code -----
+.vscode/
+
+# ----- Spring Boot -----
+spring-shell.log
+
+# ----- Logs -----
+*.log
+logs/
+log/
+
+# ----- OS Files -----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ----- Environment & Secrets -----
+.env
+.env.*
+application-local.yml
+application-local.properties
+**/src/main/resources/application-secret*
+
+# ----- Docker -----
+docker-compose.override.yml
+
+# ----- Test output -----
+/test-output/
+
+# ----- Node (if any frontend tooling) -----
+node_modules/
+npm-debug.log*
+

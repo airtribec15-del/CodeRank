@@ -38,20 +38,19 @@ public class UserRegistrationService {
                 .role("ROLE_USER")
                 .build();
 
-        userRepository.save(user);
+        User savedUser = userRepository.save(user);
         log.info("New user registered: {}", user.getEmail());
 
-        String accessToken = jwtTokenProvider.generateAccessToken(
-                user.getId().toString(), user.getRole());
-        String refreshToken = refreshTokenService.createRefreshToken(user, deviceInfo);
+        String accessToken = jwtTokenProvider.generateAccessToken(savedUser.getId().toString(), savedUser.getRole());
+        String refreshToken = refreshTokenService.createRefreshToken(savedUser, deviceInfo);
 
         return TokenResponse.builder()
                 .accessToken(accessToken)
                 .tokenType("Bearer")
                 .expiresIn(14400)
-                .userId(user.getId())
-                .username(user.getUsername())
-                .role(user.getRole())
+                .userId(savedUser.getId())
+                .username(savedUser.getUsername())
+                .role(savedUser.getRole())
                 .build();
     }
 }

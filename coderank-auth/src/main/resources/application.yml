@@ -6,7 +6,7 @@ spring:
     name: coderank-auth
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/coderank_auth
+    url: jdbc:postgresql://${DB_HOST:postgres-auth}:${DB_PORT:5432}/coderank_auth
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver

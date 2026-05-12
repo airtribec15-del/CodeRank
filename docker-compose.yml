@@ -1,0 +1,66 @@
+services:
+
+  postgres-auth:
+    image: postgres:15-alpine
+    container_name: coderank-postgres-auth
+    environment:
+      POSTGRES_DB: coderank_auth
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_auth_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d coderank_auth"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - coderank-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: coderank-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - coderank-net
+
+  coderank-auth:
+    build:
+      context: .
+      dockerfile: coderank-auth/Dockerfile
+    container_name: coderank-auth
+    ports:
+      - "8081:8081"
+    environment:
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - coderank-net
+    restart: on-failure
+
+volumes:
+  postgres_auth_data:
+  redis_data:
+
+networks:
+  coderank-net:
+    driver: bridge

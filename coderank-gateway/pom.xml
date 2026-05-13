@@ -3,12 +3,117 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
          https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
     <modelVersion>4.0.0</modelVersion>
+
+    <!-- ✅ FIX: parent artifactId corrected from 'coderank' → 'coderank-parent' -->
     <parent>
         <groupId>com.coderank</groupId>
         <artifactId>coderank-parent</artifactId>
         <version>1.0.0</version>
     </parent>
+
     <artifactId>coderank-gateway</artifactId>
-    <name>CodeRank coderank-gateway</name>
+    <name>CodeRank API Gateway</name>
+    <description>Spring Cloud Gateway — JWT validation, rate limiting, routing, circuit breaking</description>
+
+    <dependencies>
+
+        <!-- Spring Cloud Gateway (Reactive/Netty — MUST NOT have spring-boot-starter-web on classpath) -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
+        </dependency>
+
+        <!-- Resilience4j reactive Circuit Breaker — version from Spring Cloud BOM 2023.0.1 -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-circuitbreaker-reactor-resilience4j</artifactId>
+        </dependency>
+
+        <!-- Redis Reactive (Lettuce) — rate limit token bucket counters + JWT blacklist checks -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+        </dependency>
+
+        <!-- CodeRank Common — RedisKeys constants, ErrorResponse DTO -->
+        <!-- ✅ FIX: removed hardcoded <version> — managed by parent dependencyManagement -->
+        <dependency>
+            <groupId>com.coderank</groupId>
+            <artifactId>coderank-common</artifactId>
+        </dependency>
+
+        <!-- JJWT — stateless JWT signature + claims validation in gateway filters -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Actuator — /actuator/health exposed for Docker healthcheck -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- SpringDoc WebFlux UI — Swagger for reactive gateway
+             NOTE: Gateway itself has no REST controllers; this documents
+             the aggregated API surface via springdoc gateway support -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webflux-ui</artifactId>
+            <version>2.5.0</version>
+        </dependency>
+
+        <!-- Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Reactor Test — StepVerifier for testing reactive filter chains -->
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- spring-boot-maven-plugin — fat JAR with repackage goal from parent pluginManagement -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
 </project>

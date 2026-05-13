@@ -1,0 +1,106 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: coderank-gateway
+
+  data:
+    redis:
+      # Permanent rule: env var with Docker Compose service name as default
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+
+  cloud:
+    gateway:
+      # Disable default X-Forwarded-* header rewriting — we handle headers manually
+      forwarded:
+        enabled: true
+      x-forwarded:
+        enabled: true
+
+      routes:
+
+        # ── Auth Service routes ────────────────────────────────────────────
+        - id: auth-service
+          uri: http://${AUTH_SERVICE_HOST:coderank-auth}:8081
+          predicates:
+            - Path=/api/v1/auth/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: auth-circuit-breaker
+                fallbackUri: forward:/fallback/auth
+
+        # ── Submission Service routes ──────────────────────────────────────
+        - id: submission-service-execute
+          uri: http://${SUBMISSION_SERVICE_HOST:coderank-submission}:8082
+          predicates:
+            - Path=/api/v1/execute/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: submission-circuit-breaker
+                fallbackUri: forward:/fallback/submission
+
+        - id: submission-service-submissions
+          uri: http://${SUBMISSION_SERVICE_HOST:coderank-submission}:8082
+          predicates:
+            - Path=/api/v1/submissions/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: submission-circuit-breaker
+                fallbackUri: forward:/fallback/submission
+
+# JWT shared secret — must match coderank-auth jwt.secret exactly
+jwt:
+  secret: ${JWT_SECRET:coderank-super-secret-key-minimum-32-chars-long}
+
+# Resilience4j Circuit Breaker config per route
+resilience4j:
+  circuitbreaker:
+    instances:
+      auth-circuit-breaker:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        register-health-indicator: true
+      submission-circuit-breaker:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        register-health-indicator: true
+  timelimiter:
+    instances:
+      auth-circuit-breaker:
+        timeout-duration: 5s
+      submission-circuit-breaker:
+        timeout-duration: 10s
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,circuitbreakers
+  endpoint:
+    health:
+      show-details: always
+
+# SpringDoc — aggregated API docs from downstream services
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    urls:
+      - name: Auth Service
+        url: /api/v1/auth/v3/api-docs
+      - name: Submission Service
+        url: /api/v1/submissions/v3/api-docs
+
+logging:
+  level:
+    com.coderank.gateway: DEBUG
+    org.springframework.cloud.gateway: INFO

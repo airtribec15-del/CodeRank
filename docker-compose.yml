@@ -1,5 +1,7 @@
 services:
 
+  # ── Infrastructure ────────────────────────────────────────────────────────
+
   postgres-auth:
     image: postgres:15-alpine
     container_name: coderank-postgres-auth
@@ -35,6 +37,8 @@ services:
     networks:
       - coderank-net
 
+  # ── Services ──────────────────────────────────────────────────────────────
+
   coderank-auth:
     build:
       context: .
@@ -43,6 +47,7 @@ services:
     ports:
       - "8081:8081"
     environment:
+      DB_HOST: postgres-auth
       DB_USERNAME: postgres
       DB_PASSWORD: postgres
       REDIS_HOST: redis
@@ -56,6 +61,37 @@ services:
     networks:
       - coderank-net
     restart: on-failure
+
+  coderank-gateway:
+    build:
+      context: .
+      dockerfile: coderank-gateway/Dockerfile
+    container_name: coderank-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Must be identical to the secret in coderank-auth
+      JWT_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      AUTH_SERVICE_HOST: coderank-auth
+      SUBMISSION_SERVICE_HOST: coderank-submission
+    depends_on:
+      redis:
+        condition: service_healthy
+      coderank-auth:
+        condition: service_started
+    networks:
+      - coderank-net
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+# ── Volumes & Networks ──────────────────────────────────────────────────────
 
 volumes:
   postgres_auth_data:

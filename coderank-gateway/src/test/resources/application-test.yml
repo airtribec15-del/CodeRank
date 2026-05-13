@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: coderank-gateway-test
+
+  # Disable cloud config and discovery for tests
+  cloud:
+    gateway:
+      routes: []  # No routes needed in unit tests — we test filters directly
+
+  # Disable Redis autoconfiguration for unit tests
+  # Individual tests mock ReactiveStringRedisTemplate manually
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration
+
+# JWT secret for tests — must be 32+ chars to satisfy HS256
+jwt:
+  secret: test-secret-key-minimum-32-chars-long!!
+
+# Suppress noisy logs during tests
+logging:
+  level:
+    com.coderank.gateway: WARN
+    org.springframework.cloud.gateway: WARN
+    org.springframework.security: WARN

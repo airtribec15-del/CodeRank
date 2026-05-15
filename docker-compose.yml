@@ -21,6 +21,25 @@ services:
     networks:
       - coderank-net
 
+  postgres-problem:
+    image: postgres:15-alpine
+    container_name: coderank-postgres-problem
+    environment:
+      POSTGRES_DB: coderankproblem
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_problem_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d coderankproblem"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - coderank-net
+
   redis:
     image: redis:7-alpine
     container_name: coderank-redis
@@ -62,6 +81,35 @@ services:
       - coderank-net
     restart: on-failure
 
+  coderank-problem:
+    build:
+      context: .
+      dockerfile: coderank-problem/Dockerfile
+    container_name: coderank-problem
+    ports:
+      - "8082:8082"
+    environment:
+      DB_HOST: postgres-problem
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      postgres-problem:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - coderank-net
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
   coderank-gateway:
     build:
       context: .
@@ -72,14 +120,16 @@ services:
     environment:
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      # Must be identical to the secret in coderank-auth
       JWT_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
       AUTH_SERVICE_HOST: coderank-auth
+      PROBLEM_SERVICE_HOST: coderank-problem
       SUBMISSION_SERVICE_HOST: coderank-submission
     depends_on:
       redis:
         condition: service_healthy
       coderank-auth:
+        condition: service_started
+      coderank-problem:
         condition: service_started
     networks:
       - coderank-net
@@ -95,6 +145,7 @@ services:
 
 volumes:
   postgres_auth_data:
+  postgres_problem_data:
   redis_data:
 
 networks:

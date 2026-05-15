@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.coderank.common.enums.UserRole;
 
 @Slf4j
 @Service
@@ -35,7 +36,7 @@ public class UserRegistrationService {
                 .username(request.getUsername())
                 .email(request.getEmail())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
-                .role("ROLE_USER")
+                .role(UserRole.ROLE_USER.getValue())
                 .build();
 
         User savedUser = userRepository.save(user);

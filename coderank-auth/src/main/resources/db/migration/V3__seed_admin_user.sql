@@ -7,7 +7,7 @@ VALUES (
            gen_random_uuid(),
            'admin',
            'admin@coderank.io',
-           '$2a$12$7QFoAORY5F1fBPuqKjHM5.vCf5k9ZGq5kIwSTLSYIeqnkgF2oNVDu',
+           '$2b$12$h2RJAOV94WGzxtYhzkIqZ.q89XI2lAdqZAcb1TEgnuasWDSfu5EyC',
            'ROLE_ADMIN',
            now()
        )

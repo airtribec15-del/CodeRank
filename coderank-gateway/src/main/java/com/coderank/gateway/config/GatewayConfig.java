@@ -3,6 +3,7 @@ package com.coderank.gateway.config;
 import org.springframework.cloud.gateway.filter.ratelimit.KeyResolver;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.reactive.CorsWebFilter;
 import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
@@ -14,10 +15,6 @@ import java.util.Objects;
 @Configuration
 public class GatewayConfig {
 
-    /**
-     * Global CORS — applied before any route matching.
-     * CorsWebFilter is the correct reactive equivalent of WebMvcConfigurer.
-     */
     @Bean
     public CorsWebFilter corsWebFilter() {
         CorsConfiguration config = new CorsConfiguration();
@@ -26,30 +23,27 @@ public class GatewayConfig {
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
-
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
-
         return new CorsWebFilter(source);
     }
 
     /**
-     * Rate limit key by IP address — used for public routes (auth).
+     * @Primary — this is the DEFAULT KeyResolver injected by GatewayAutoConfiguration
+     * into RequestRateLimiterGatewayFilterFactory. Used for public/auth routes (IP-based).
      */
     @Bean
+    @Primary                          // <-- THIS IS THE FIX
     public KeyResolver ipKeyResolver() {
         return exchange -> Mono.just(
-                Objects.requireNonNull(
-                        exchange.getRequest().getRemoteAddress()
-                ).getAddress().getHostAddress()
+                Objects.requireNonNull(exchange.getRequest().getRemoteAddress())
+                        .getAddress().getHostAddress()
         );
     }
 
     /**
-     * Rate limit key by authenticated user — used for protected routes
-     * (problem, submission). Uses raw Bearer token as bucket key so
-     * each user gets their own rate limit bucket.
-     * Falls back to IP if no Authorization header is present.
+     * Secondary resolver — referenced BY NAME in application.yml for authenticated routes:
+     * key-resolver: "#{@userKeyResolver}"
      */
     @Bean
     public KeyResolver userKeyResolver() {
@@ -61,9 +55,8 @@ public class GatewayConfig {
                 return Mono.just(authHeader.substring(7));
             }
             return Mono.just(
-                    Objects.requireNonNull(
-                            exchange.getRequest().getRemoteAddress()
-                    ).getAddress().getHostAddress()
+                    Objects.requireNonNull(exchange.getRequest().getRemoteAddress())
+                            .getAddress().getHostAddress()
             );
         };
     }

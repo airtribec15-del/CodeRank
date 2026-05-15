@@ -8,9 +8,9 @@ services:
     environment:
       POSTGRES_DB: coderank_auth
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: abhinav195
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - postgres_auth_data:/var/lib/postgresql/data
     healthcheck:
@@ -27,9 +27,9 @@ services:
     environment:
       POSTGRES_DB: coderankproblem
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: abhinav195
     ports:
-      - "5433:5432"
+      - "5435:5432"
     volumes:
       - postgres_problem_data:/var/lib/postgresql/data
     healthcheck:
@@ -68,7 +68,7 @@ services:
     environment:
       DB_HOST: postgres-auth
       DB_USERNAME: postgres
-      DB_PASSWORD: postgres
+      DB_PASSWORD: abhinav195
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
@@ -92,7 +92,7 @@ services:
       DB_HOST: postgres-problem
       DB_PORT: 5432
       DB_USERNAME: postgres
-      DB_PASSWORD: postgres
+      DB_PASSWORD: abhinav195
       REDIS_HOST: redis
       REDIS_PORT: 6379
     depends_on:

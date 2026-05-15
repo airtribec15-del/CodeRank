@@ -11,6 +11,7 @@ import com.coderank.problem.mapper.ProblemMapper;
 import com.coderank.problem.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.Hibernate;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
@@ -60,6 +61,12 @@ public class ProblemService {
     public ProblemDetailResponse getProblemBySlug(String slug) {
         Problem problem = problemRepository.findBySlug(slug)
                 .orElseThrow(() -> new InvalidRequestException("Problem not found: " + slug));
+
+        // Force-initialize lazy collections within the transaction
+        Hibernate.initialize(problem.getTopics());
+        Hibernate.initialize(problem.getCompanies());
+        Hibernate.initialize(problem.getExamples());
+
         return problemMapper.toDetailResponse(problem);
     }
 
@@ -180,6 +187,7 @@ public class ProblemService {
         problemRepository.save(problem);
         log.info("Problem state updated: {} → {}", id, newState);
     }
+
 
     // ─── HELPERS ─────────────────────────────────────────────────────────────
 

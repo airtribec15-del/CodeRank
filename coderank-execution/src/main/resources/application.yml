@@ -1,0 +1,62 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: coderank-execution
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: coderank-execution-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: com.coderank.common.event
+        spring.json.value.default.type: com.coderank.common.event.CodeExecutionRequestEvent
+        spring.json.use.type.headers: false
+        max.poll.records: 5
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+        spring.json.add.type.headers: false
+
+execution:
+  docker:
+    socket: ${DOCKER_SOCKET:unix:///var/run/docker.sock}
+    timeout-seconds: ${EXECUTION_TIMEOUT:10}
+    memory-limit-mb: ${EXECUTION_MEMORY_MB:128}
+    cpu-period: 100000
+    cpu-quota: 50000   # 50% of one core
+    network-disabled: true
+  images:
+    python: python:3.11-slim
+    java: openjdk:21-slim
+    javascript: node:20-slim
+    cpp: gcc:13
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+logging:
+  level:
+    com.coderank: DEBUG
+    org.springframework.kafka: INFO

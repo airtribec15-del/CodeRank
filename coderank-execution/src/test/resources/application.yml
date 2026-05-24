@@ -1,0 +1,29 @@
+spring:
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: coderank-execution-test-group
+
+execution:
+  docker:
+    socket: unix:///var/run/docker.sock
+    timeout-seconds: 10
+    memory-limit-mb: 128
+    cpu-period: 100000
+    cpu-quota: 50000
+    network-disabled: true
+  images:
+    python: python:3.11-slim
+    java: openjdk:21-slim
+    javascript: node:20-slim
+    cpp: gcc:13
+
+logging:
+  level:
+    com.coderank: WARN
+    org.springframework.kafka: WARN

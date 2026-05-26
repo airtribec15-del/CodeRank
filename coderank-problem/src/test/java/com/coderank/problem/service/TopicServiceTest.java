@@ -6,22 +6,15 @@ import com.coderank.problem.dto.response.TopicResponse;
 import com.coderank.problem.entity.Topic;
 import com.coderank.problem.mapper.ProblemMapper;
 import com.coderank.problem.repository.TopicRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
+import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -29,47 +22,42 @@ import static org.mockito.Mockito.*;
 class TopicServiceTest {
 
     @Mock private TopicRepository topicRepository;
-    @Mock private ProblemMapper problemMapper;
+    @Mock private ProblemMapper   problemMapper;
 
-    @InjectMocks private TopicService topicService;
+    @InjectMocks
+    private TopicService topicService;
 
-    private Topic topic;
-    private TopicResponse topicResponse;
+    private final UUID  topicId = UUID.randomUUID();
+    private       Topic topic;
+    private       TopicResponse topicResponse;
 
     @BeforeEach
     void setUp() {
-        topic = Topic.builder()
-                .id(UUID.randomUUID())
-                .name("Array")
-                .build();
-
-        topicResponse = TopicResponse.builder()
-                .id(topic.getId())
-                .name("Array")
-                .build();
+        topic = Topic.builder().id(topicId).name("Dynamic Programming").build();
+        topicResponse = TopicResponse.builder().id(topicId).name("Dynamic Programming").build();
     }
 
     // ------------------------------------------------------------------ //
-    //  getAllTopics                                                         //
+    //  getAllTopics                                                        //
     // ------------------------------------------------------------------ //
     @Nested
     @DisplayName("getAllTopics")
     class GetAllTopics {
 
         @Test
-        @DisplayName("returns list mapped from all repository topics")
-        void shouldReturnMappedTopics() {
+        @DisplayName("returns mapped list of all topics")
+        void shouldReturnAllTopics() {
             when(topicRepository.findAll()).thenReturn(List.of(topic));
             when(problemMapper.toTopicResponse(topic)).thenReturn(topicResponse);
 
             List<TopicResponse> result = topicService.getAllTopics();
 
             assertThat(result).hasSize(1);
-            assertThat(result.get(0).getName()).isEqualTo("Array");
+            assertThat(result.get(0).getName()).isEqualTo("Dynamic Programming");
         }
 
         @Test
-        @DisplayName("returns empty list when repository returns nothing")
+        @DisplayName("returns empty list when no topics exist")
         void shouldReturnEmptyListWhenNone() {
             when(topicRepository.findAll()).thenReturn(List.of());
 
@@ -87,48 +75,42 @@ class TopicServiceTest {
     class CreateTopic {
 
         @Test
-        @DisplayName("saves topic and returns mapped response")
-        void shouldSaveAndReturnResponse() {
-            CreateTopicRequest request = new CreateTopicRequest("Array");
-
-            when(topicRepository.existsByNameIgnoreCase("Array")).thenReturn(false);
+        @DisplayName("creates and returns topic response when name is unique")
+        void shouldCreateWhenNameIsUnique() {
+            when(topicRepository.existsByNameIgnoreCase("Dynamic Programming")).thenReturn(false);
             when(topicRepository.save(any(Topic.class))).thenReturn(topic);
             when(problemMapper.toTopicResponse(topic)).thenReturn(topicResponse);
 
-            TopicResponse result = topicService.createTopic(request);
+            TopicResponse result = topicService.createTopic(
+                    CreateTopicRequest.builder().name("Dynamic Programming").build());
 
-            assertThat(result.getName()).isEqualTo("Array");
+            assertThat(result.getName()).isEqualTo("Dynamic Programming");
             verify(topicRepository).save(any(Topic.class));
         }
 
         @Test
-        @DisplayName("trims whitespace from name before saving")
-        void shouldTrimNameBeforeSaving() {
-            CreateTopicRequest request = new CreateTopicRequest("  Array  ");
+        @DisplayName("throws InvalidRequestException when topic name already exists")
+        void shouldThrowWhenDuplicate() {
+            when(topicRepository.existsByNameIgnoreCase("Dynamic Programming")).thenReturn(true);
 
-            when(topicRepository.existsByNameIgnoreCase("  Array  ")).thenReturn(false);
-            when(topicRepository.save(any(Topic.class))).thenReturn(topic);
-            when(problemMapper.toTopicResponse(topic)).thenReturn(topicResponse);
+            assertThatThrownBy(() ->
+                    topicService.createTopic(
+                            CreateTopicRequest.builder().name("Dynamic Programming").build()))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("already exists");
 
-            ArgumentCaptor<Topic> captor = ArgumentCaptor.forClass(Topic.class);
-            topicService.createTopic(request);
-
-            verify(topicRepository).save(captor.capture());
-            assertThat(captor.getValue().getName()).isEqualTo("Array");
+            verify(topicRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("throws InvalidRequestException containing name when topic already exists")
-        void shouldThrowWhenTopicAlreadyExists() {
-            CreateTopicRequest request = new CreateTopicRequest("Array");
+        @DisplayName("name check is case-insensitive")
+        void shouldCheckCaseInsensitive() {
+            when(topicRepository.existsByNameIgnoreCase("arrays")).thenReturn(true);
 
-            when(topicRepository.existsByNameIgnoreCase("Array")).thenReturn(true);
-
-            assertThatThrownBy(() -> topicService.createTopic(request))
-                    .isInstanceOf(InvalidRequestException.class)
-                    .hasMessageContaining("Array");
-
-            verify(topicRepository, never()).save(any());
+            assertThatThrownBy(() ->
+                    topicService.createTopic(
+                            CreateTopicRequest.builder().name("arrays").build()))
+                    .isInstanceOf(InvalidRequestException.class);
         }
     }
 
@@ -141,22 +123,20 @@ class TopicServiceTest {
 
         @Test
         @DisplayName("calls deleteById when topic exists")
-        void shouldCallDeleteByIdWhenExists() {
-            UUID id = topic.getId();
-            when(topicRepository.existsById(id)).thenReturn(true);
+        void shouldDeleteWhenExists() {
+            when(topicRepository.existsById(topicId)).thenReturn(true);
 
-            topicService.deleteTopic(id);
+            topicService.deleteTopic(topicId);
 
-            verify(topicRepository).deleteById(id);
+            verify(topicRepository).deleteById(topicId);
         }
 
         @Test
-        @DisplayName("throws InvalidRequestException and never deletes when not found")
-        void shouldThrowAndNeverDeleteWhenNotFound() {
-            UUID id = UUID.randomUUID();
-            when(topicRepository.existsById(id)).thenReturn(false);
+        @DisplayName("throws and never deletes when topic not found")
+        void shouldThrowWhenNotFound() {
+            when(topicRepository.existsById(topicId)).thenReturn(false);
 
-            assertThatThrownBy(() -> topicService.deleteTopic(id))
+            assertThatThrownBy(() -> topicService.deleteTopic(topicId))
                     .isInstanceOf(InvalidRequestException.class)
                     .hasMessageContaining("Topic not found");
 

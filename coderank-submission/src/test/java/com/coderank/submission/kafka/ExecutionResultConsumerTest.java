@@ -1,147 +1,238 @@
+// src/test/java/com/coderank/submission/kafka/ExecutionResultConsumerTest.java
 package com.coderank.submission.kafka;
 
 import com.coderank.common.enums.ExecutionStatus;
+import com.coderank.common.enums.Verdict;
 import com.coderank.common.event.CodeExecutionResultEvent;
 import com.coderank.common.exception.InvalidRequestException;
-import com.coderank.submission.enums.Verdict;
 import com.coderank.submission.service.SubmissionService;
 import com.coderank.submission.service.VerdictResolutionService;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.*;
+import org.mockito.InOrder;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.kafka.support.Acknowledgment;
 
 import java.time.Instant;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThatNoException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ExecutionResultConsumer")
 class ExecutionResultConsumerTest {
 
-    @Mock private SubmissionService submissionService;
-    @Mock private VerdictResolutionService verdictResolutionService;
-    @Mock private Acknowledgment acknowledgment;
-    @InjectMocks private ExecutionResultConsumer consumer;
+    @Mock SubmissionService submissionService;
+    @Mock VerdictResolutionService verdictResolutionService;
+    @Mock Acknowledgment acknowledgment;
 
-    private CodeExecutionResultEvent event(ExecutionStatus status, String stdout, String stderr, Integer exit) {
-        return CodeExecutionResultEvent.builder()
-                .jobId(UUID.randomUUID()).submissionId(UUID.randomUUID())
-                .status(status).stdout(stdout).stderr(stderr)
-                .exitCode(exit).executionTimeMs(100L).completedAt(Instant.now())
+    @InjectMocks ExecutionResultConsumer consumer;
+
+    private CodeExecutionResultEvent completedEvent;
+    private CodeExecutionResultEvent failedEvent;
+
+    @BeforeEach
+    void setUp() {
+        UUID jobId = UUID.randomUUID();
+        UUID submissionId = UUID.randomUUID();
+
+        completedEvent = CodeExecutionResultEvent.builder()
+                .jobId(jobId)
+                .submissionId(submissionId)
+                .status(ExecutionStatus.COMPLETED)
+                .stdout("[0,1]")
+                .stderr("")
+                .exitCode(0)
+                .executionTimeMs(120L)
+                .completedAt(Instant.now())
+                .build();
+
+        failedEvent = CodeExecutionResultEvent.builder()
+                .jobId(UUID.randomUUID())
+                .submissionId(UUID.randomUUID())
+                .status(ExecutionStatus.FAILED)
+                .stdout("")
+                .stderr("runtime crash")
+                .exitCode(1)
+                .executionTimeMs(50L)
+                .completedAt(Instant.now())
                 .build();
     }
 
-    // ── Happy path ──────────────────────────────────────────────────────
+    // ------------------------------------------------------------------ //
+    //  consume() — happy path                                            //
+    // ------------------------------------------------------------------ //
 
-    @Test @DisplayName("resolves verdict, persists, then acknowledges offset")
-    void shouldResolveAndAck() {
-        var ev = event(ExecutionStatus.COMPLETED, "[0,1]", "", 0);
-        when(verdictResolutionService.resolve(ev)).thenReturn(Verdict.ACCEPTED);
-        doNothing().when(submissionService).updateSubmissionResult(any(), any(), any(), any(), any(), any(), any());
+    @Nested
+    @DisplayName("consume — happy path")
+    class ConsumeHappyPath {
 
-        consumer.consume(ev, "code.execution.results", 0, 1L, acknowledgment);
+        @Test
+        @DisplayName("resolves verdict, updates submission, then acknowledges offset (in order)")
+        void shouldResolveAndAcknowledge() {
+            when(verdictResolutionService.resolve(completedEvent)).thenReturn(Verdict.ACCEPTED);
 
-        InOrder order = inOrder(submissionService, acknowledgment);
-        order.verify(submissionService).updateSubmissionResult(eq(ev.getJobId()),
-                eq(ExecutionStatus.COMPLETED), eq("[0,1]"), eq(""), eq(0), eq(100L), eq(Verdict.ACCEPTED));
-        order.verify(acknowledgment).acknowledge();
+            consumer.consume(completedEvent, "code.execution.results", 0, 0L, acknowledgment);
+
+            InOrder inOrder = inOrder(verdictResolutionService, submissionService, acknowledgment);
+            inOrder.verify(verdictResolutionService).resolve(completedEvent);
+            inOrder.verify(submissionService).updateSubmissionResult(
+                    eq(completedEvent.getJobId()),
+                    eq(ExecutionStatus.COMPLETED),
+                    eq("[0,1]"),
+                    eq(""),
+                    eq(0),
+                    eq(120L),
+                    eq(Verdict.ACCEPTED)
+            );
+            inOrder.verify(acknowledgment).acknowledge();
+        }
+
+        @Test
+        @DisplayName("resolves RUNTIME_ERROR verdict for failed event and acknowledges")
+        void shouldHandleFailedEventAndAcknowledge() {
+            when(verdictResolutionService.resolve(failedEvent)).thenReturn(Verdict.RUNTIME_ERROR);
+
+            consumer.consume(failedEvent, "code.execution.results", 0, 1L, acknowledgment);
+
+            verify(submissionService).updateSubmissionResult(
+                    eq(failedEvent.getJobId()),
+                    eq(ExecutionStatus.FAILED),
+                    eq(""),
+                    eq("runtime crash"),
+                    eq(1),
+                    eq(50L),
+                    eq(Verdict.RUNTIME_ERROR));
+            verify(acknowledgment).acknowledge();
+        }
     }
 
-    @Test @DisplayName("TIMED_OUT → TIME_LIMIT_EXCEEDED verdict saved")
-    void shouldHandleTimedOut() {
-        var ev = event(ExecutionStatus.TIMED_OUT, "", "", 1);
-        when(verdictResolutionService.resolve(ev)).thenReturn(Verdict.TIME_LIMIT_EXCEEDED);
+    // ------------------------------------------------------------------ //
+    //  consume() — non-retryable (InvalidRequestException)               //
+    // ------------------------------------------------------------------ //
 
-        consumer.consume(ev, "code.execution.results", 0, 2L, acknowledgment);
+    @Nested
+    @DisplayName("consume — non-retryable error")
+    class ConsumeNonRetryable {
 
-        verify(submissionService).updateSubmissionResult(any(), eq(ExecutionStatus.TIMED_OUT),
-                any(), any(), any(), any(), eq(Verdict.TIME_LIMIT_EXCEEDED));
-        verify(acknowledgment).acknowledge();
+        @Test
+        @DisplayName("re-throws InvalidRequestException without acknowledging (routes to DLT immediately)")
+        void shouldRethrowInvalidRequestException() {
+            when(verdictResolutionService.resolve(completedEvent)).thenReturn(Verdict.ACCEPTED);
+            doThrow(new InvalidRequestException("No submission for jobId"))
+                    .when(submissionService).updateSubmissionResult(
+                            any(), any(), any(), any(), any(), any(), any());
+
+            assertThatThrownBy(() ->
+                    consumer.consume(completedEvent, "code.execution.results", 0, 0L, acknowledgment))
+                    .isInstanceOf(InvalidRequestException.class)
+                    .hasMessageContaining("No submission for jobId");
+
+            verify(acknowledgment, never()).acknowledge();
+        }
     }
 
-    // ── Non-retryable path ─────────────────────────────────────────────
+    // ------------------------------------------------------------------ //
+    //  consume() — retryable (transient exception)                       //
+    // ------------------------------------------------------------------ //
 
-    @Test @DisplayName("InvalidRequestException → rethrown (non-retryable, no ack)")
-    void shouldRethrowNonRetryableAndNotAck() {
-        var ev = event(ExecutionStatus.COMPLETED, "ok", "", 0);
-        when(verdictResolutionService.resolve(ev)).thenReturn(Verdict.ACCEPTED);
-        doThrow(new InvalidRequestException("No submission found for jobId: " + ev.getJobId()))
-                .when(submissionService).updateSubmissionResult(any(), any(), any(), any(), any(), any(), any());
+    @Nested
+    @DisplayName("consume — transient/retryable error")
+    class ConsumeRetryable {
 
-        assertThatThrownBy(() ->
-                consumer.consume(ev, "code.execution.results", 0, 5L, acknowledgment))
-                .isInstanceOf(InvalidRequestException.class);
+        @Test
+        @DisplayName("re-throws transient RuntimeException without acknowledging (triggers retry topic)")
+        void shouldRethrowTransientExceptionWithoutAck() {
+            when(verdictResolutionService.resolve(completedEvent)).thenReturn(Verdict.ACCEPTED);
+            doThrow(new RuntimeException("DB connection lost"))
+                    .when(submissionService).updateSubmissionResult(
+                            any(), any(), any(), any(), any(), any(), any());
 
-        verify(acknowledgment, never()).acknowledge();
+            assertThatThrownBy(() ->
+                    consumer.consume(completedEvent, "code.execution.results", 0, 0L, acknowledgment))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("DB connection lost");
+
+            verify(acknowledgment, never()).acknowledge();
+        }
+
+        @Test
+        @DisplayName("re-throws exception from verdict resolver without acknowledging")
+        void shouldRethrowVerdictResolverException() {
+            when(verdictResolutionService.resolve(completedEvent))
+                    .thenThrow(new RuntimeException("verdict resolver crash"));
+
+            assertThatThrownBy(() ->
+                    consumer.consume(completedEvent, "code.execution.results", 0, 0L, acknowledgment))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("verdict resolver crash");
+
+            verify(submissionService, never()).updateSubmissionResult(
+                    any(), any(), any(), any(), any(), any(), any());
+            verify(acknowledgment, never()).acknowledge();
+        }
     }
 
-    // ── Retryable path ─────────────────────────────────────────────────
+    // ------------------------------------------------------------------ //
+    //  handleDlt()                                                       //
+    // ------------------------------------------------------------------ //
 
-    @Test @DisplayName("transient RuntimeException → rethrown (triggers retry), no ack")
-    void shouldRethrowTransientAndNotAck() {
-        var ev = event(ExecutionStatus.COMPLETED, "ok", "", 0);
-        when(verdictResolutionService.resolve(ev)).thenReturn(Verdict.ACCEPTED);
-        doThrow(new RuntimeException("DB connection lost"))
-                .when(submissionService).updateSubmissionResult(any(), any(), any(), any(), any(), any(), any());
+    @Nested
+    @DisplayName("handleDlt")
+    class HandleDlt {
 
-        assertThatThrownBy(() ->
-                consumer.consume(ev, "code.execution.results", 0, 6L, acknowledgment))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("DB connection lost");
+        @Test
+        @DisplayName("marks submission as DLT-failed and never re-throws")
+        void shouldMarkAsDltFailedAndNotThrow() {
+            assertThatNoException().isThrownBy(() ->
+                    consumer.handleDlt(
+                            completedEvent,
+                            "code.execution.results-dlt",
+                            0, 0L,
+                            "Retries exhausted"));
 
-        verify(acknowledgment, never()).acknowledge();
-    }
+            verify(submissionService).markSubmissionAsDltFailed(completedEvent.getJobId());
+        }
 
-    @Test @DisplayName("VerdictResolutionService throws → rethrown, no ack")
-    void shouldRethrowWhenVerdictResolutionFails() {
-        var ev = event(ExecutionStatus.COMPLETED, "ok", "", 0);
-        when(verdictResolutionService.resolve(ev)).thenThrow(new RuntimeException("Verdict error"));
+        @Test
+        @DisplayName("does NOT re-throw even if markSubmissionAsDltFailed itself throws")
+        void shouldSwallowExceptionFromMarkAsDltFailed() {
+            doThrow(new RuntimeException("DB also down"))
+                    .when(submissionService).markSubmissionAsDltFailed(any());
 
-        assertThatThrownBy(() ->
-                consumer.consume(ev, "code.execution.results", 0, 7L, acknowledgment))
-                .isInstanceOf(RuntimeException.class);
+            assertThatNoException().isThrownBy(() ->
+                    consumer.handleDlt(
+                            completedEvent,
+                            "code.execution.results-dlt",
+                            0, 0L,
+                            "original error"));
 
-        verify(acknowledgment, never()).acknowledge();
-        verifyNoInteractions(submissionService);
-    }
+            verify(submissionService).markSubmissionAsDltFailed(completedEvent.getJobId());
+        }
 
-    // ── @DltHandler ────────────────────────────────────────────────────
+        @Test
+        @DisplayName("calls markSubmissionAsDltFailed with correct jobId from event")
+        void shouldPassCorrectJobId() {
+            consumer.handleDlt(
+                    failedEvent,
+                    "code.execution.results-dlt",
+                    0, 5L,
+                    "some error");
 
-    @Test @DisplayName("@DltHandler calls markSubmissionAsDltFailed (best-effort)")
-    void dltHandlerCallsMarkAsDltFailed() {
-        var ev = event(ExecutionStatus.FAILED, null, "fatal", 1);
-        doNothing().when(submissionService).markSubmissionAsDltFailed(ev.getJobId());
-
-        assertThatNoException().isThrownBy(() ->
-                consumer.handleDlt(ev, "code.execution.results-dlt", 0, 1L, "DB down after 3 retries"));
-
-        verify(submissionService).markSubmissionAsDltFailed(ev.getJobId());
-    }
-
-    @Test @DisplayName("@DltHandler does NOT rethrow even if markAsDltFailed itself throws")
-    void dltHandlerDoesNotRethrowOnMarkFailure() {
-        var ev = event(ExecutionStatus.FAILED, null, "fatal", 1);
-        doThrow(new RuntimeException("Redis down"))
-                .when(submissionService).markSubmissionAsDltFailed(any());
-
-        // Must NOT rethrow — doing so would cause infinite DLT loop
-        assertThatNoException().isThrownBy(() ->
-                consumer.handleDlt(ev, "code.execution.results-dlt", 0, 2L, "original error"));
-    }
-
-    @Test @DisplayName("@DltHandler never calls updateSubmissionResult")
-    void dltHandlerDoesNotCallUpdateResult() {
-        var ev = event(ExecutionStatus.FAILED, null, "fatal", 1);
-        doNothing().when(submissionService).markSubmissionAsDltFailed(any());
-
-        consumer.handleDlt(ev, "code.execution.results-dlt", 0, 3L, "error");
-
-        verify(submissionService, never()).updateSubmissionResult(any(), any(), any(), any(), any(), any(), any());
-        verify(acknowledgment, never()).acknowledge();
+            verify(submissionService).markSubmissionAsDltFailed(failedEvent.getJobId());
+        }
     }
 }

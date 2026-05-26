@@ -25,51 +25,42 @@ public class SecurityConfig {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .addFilterBefore(gatewayAuthenticationFilter,
-                        UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(gatewayAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
-                        // Swagger / Actuator — open
+                        // Swagger + Actuator: open
                         .requestMatchers(
-                                "/v3/api-docs/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
+                                "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html",
                                 "/actuator/health"
                         ).permitAll()
 
-                        // Internal endpoints — accessible only within the cluster
-                        // (Gateway blocks /api/v1/internal/** externally)
-                        .requestMatchers("/api/v1/internal/**").hasAnyAuthority(
-                                "ROLE_USER", "ROLE_ADMIN"
-                        )
-
-                        // Topics & Companies — read open, write ADMIN only
-                        .requestMatchers(HttpMethod.GET,
-                                "/api/v1/topics/**",
-                                "/api/v1/companies/**"
-                        ).hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
-
-                        .requestMatchers(HttpMethod.POST,
-                                "/api/v1/topics/**",
-                                "/api/v1/companies/**"
-                        ).hasAuthority("ROLE_ADMIN")
-
-                        .requestMatchers(HttpMethod.DELETE,
-                                "/api/v1/topics/**",
-                                "/api/v1/companies/**"
-                        ).hasAuthority("ROLE_ADMIN")
-
-                        // Problems — GET open to authenticated, mutations ADMIN only
-                        .requestMatchers(HttpMethod.GET, "/api/v1/problems/**")
+                        // Internal endpoints: blocked at Gateway externally, open within cluster
+                        .requestMatchers("/api/v1/internal/**")
                         .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
 
-                        .requestMatchers(HttpMethod.POST, "/api/v1/problems/**")
+                        // Topics + Companies: read open, write ADMIN only
+                        .requestMatchers(HttpMethod.GET, "/api/v1/topics/**", "/api/v1/companies/**")
+                        .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/topics/**", "/api/v1/companies/**")
+                        .hasAuthority("ROLE_ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/topics/**", "/api/v1/companies/**")
                         .hasAuthority("ROLE_ADMIN")
 
+                        // Problems: GET open to authenticated, mutations ADMIN only
+                        .requestMatchers(HttpMethod.GET, "/api/v1/problems/**")
+                        .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/problems")
+                        .hasAuthority("ROLE_ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/problems/**")
                         .hasAuthority("ROLE_ADMIN")
-
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/problems/**")
                         .hasAuthority("ROLE_ADMIN")
+
+                        // ── Submit endpoint: any authenticated user can submit ─────────
+                        // This rule must be MORE SPECIFIC than the PATCH/DELETE rules above.
+                        // Spring Security evaluates rules top-to-bottom; this POST on /{id}/submit
+                        // is distinct from the POST on /api/v1/problems (create) which is ADMIN only.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/problems/*/submit")
+                        .hasAnyAuthority("ROLE_USER", "ROLE_ADMIN")
 
                         .anyRequest().authenticated()
                 );

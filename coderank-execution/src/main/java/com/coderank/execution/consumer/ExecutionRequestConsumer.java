@@ -2,7 +2,7 @@ package com.coderank.execution.consumer;
 
 import com.coderank.common.constants.KafkaTopics;
 import com.coderank.common.event.CodeExecutionRequestEvent;
-import com.coderank.execution.exception.NonRetryableExecutionException;
+import com.coderank.common.exception.InvalidRequestException;
 import com.coderank.execution.service.CodeExecutionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,29 +17,29 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.stereotype.Component;
 
+import java.util.UUID;
+
 /**
  * Consumes {@link CodeExecutionRequestEvent} from {@code code.execution.requests}.
  *
- * <h2>Retry + DLT Strategy</h2>
+ * <h2>Retry / DLT Strategy</h2>
  * <pre>
- *  Attempt 1 → code.execution.requests          (original topic)
- *  Attempt 2 → code.execution.requests-retry-0  (after 500 ms)
- *  Attempt 3 → code.execution.requests-retry-1  (after 1 s)
- *  Exhausted → code.execution.requests-dlt       (@DltHandler)
+ * Attempt 1: code.execution.requests          (original topic)
+ * Attempt 2: code.execution.requests-retry-0  (after 2 s)
+ * Attempt 3: code.execution.requests-retry-1  (after 4 s)
+ * Attempt 4: code.execution.requests-retry-2  (after 8 s)
+ * Exhausted:  code.execution.requests-dlt     (@DltHandler)
  * </pre>
  *
- * <h2>Exception Classification</h2>
- * <ul>
- *   <li><b>Retryable</b>  – Docker daemon temporarily unavailable, thread pool busy → retried.</li>
- *   <li><b>Non-retryable</b> – {@link NonRetryableExecutionException} (unsupported language,
- *       null source code, container image not found) → straight to DLT.</li>
- * </ul>
+ * <h2>Offset ACK Ordering</h2>
+ * The offset is manually ACKed ONLY AFTER the async execution task has been
+ * dispatched to the thread pool. The async task itself handles its own result
+ * publishing; the consumer's job ends at dispatch.
  *
- * <h2>Offset Acknowledgement</h2>
- * Unlike the submission consumer, offset is acknowledged BEFORE the async
- * Docker run starts.  Rationale: the job is durably tracked in Redis by jobId;
- * if the JVM crashes mid-execution the submission stays QUEUED/RUNNING in Redis
- * and can be reconciled by a periodic cleanup job — no need to re-consume from Kafka.
+ * <h2>Active Object Pattern</h2>
+ * The consumer dispatches to {@link CodeExecutionService#executeAsync} which
+ * runs on a dedicated {@code executionTaskExecutor} thread pool, decoupling
+ * the Kafka poll loop from the long-running Docker execution.
  */
 @Slf4j
 @Component
@@ -48,17 +48,15 @@ public class ExecutionRequestConsumer {
 
     private final CodeExecutionService codeExecutionService;
 
-    // ------------------------------------------------------------------ //
-    //  MAIN LISTENER  (code.execution.requests)                          //
-    // ------------------------------------------------------------------ //
+    // ── MAIN LISTENER: code.execution.requests ─────────────────────────────
 
     @RetryableTopic(
-            attempts = "3",
-            backoff = @Backoff(delay = 500, multiplier = 2.0, maxDelay = 5_000),
+            attempts = "4",
+            backoff = @Backoff(delay = 2000, multiplier = 2.0, maxDelay = 30000),
             topicSuffixingStrategy = TopicSuffixingStrategy.SUFFIX_WITH_INDEX_VALUE,
             dltTopicSuffix = "-dlt",
             autoCreateTopics = "false",
-            exclude = {NonRetryableExecutionException.class}  // ← bad payload: skip retry → DLT
+            exclude = InvalidRequestException.class
     )
     @KafkaListener(
             topics = KafkaTopics.EXECUTION_REQUESTS,
@@ -66,97 +64,93 @@ public class ExecutionRequestConsumer {
             containerFactory = "kafkaListenerContainerFactory"
     )
     public void consume(
-            @Payload  CodeExecutionRequestEvent event,
-            @Header(KafkaHeaders.RECEIVED_TOPIC)     String topic,
-            @Header(KafkaHeaders.RECEIVED_PARTITION) int    partition,
-            @Header(KafkaHeaders.OFFSET)             long   offset,
+            @Payload CodeExecutionRequestEvent event,
+            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
+            @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
+            @Header(KafkaHeaders.OFFSET) long offset,
             Acknowledgment acknowledgment) {
 
-        log.info("[CONSUME] topic={} partition={} offset={} | jobId={} lang={} userId={}",
-                topic, partition, offset,
-                event.getJobId(), event.getLanguage(), event.getUserId());
-
-        try {
-            // 1. Validate payload before acking — catch bad data early
-            validateEvent(event);
-
-            // 2. Acknowledge offset: record is durably tracked in Redis by jobId
-            acknowledgment.acknowledge();
-
-            // 3. Dispatch to @Async execution pipeline — consumer thread freed immediately
-            codeExecutionService.executeAsync(event);
-
-            log.info("[CONSUME] Dispatched | jobId={} lang={}", event.getJobId(), event.getLanguage());
-
-        } catch (NonRetryableExecutionException ex) {
-            // Invalid payload — retrying won't fix it → route to DLT immediately
-            log.error("[CONSUME] Non-retryable payload error | jobId={}: {}",
-                    event.getJobId(), ex.getMessage());
-            throw ex;
-
-        } catch (Exception ex) {
-            // Transient error (thread pool saturated, Redis unreachable) → let Spring retry
-            log.warn("[CONSUME] Transient error | jobId={} (will retry): {}",
-                    event.getJobId(), ex.getMessage());
-            throw ex;
+        // Guard: reject any message missing jobId as a non-retryable poison pill.
+        // InvalidRequestException is in @RetryableTopic exclude list, so this
+        // routes straight to the DLT without burning the 3 retry attempts.
+        // This must happen on the Kafka listener thread (before executeAsync)
+        // so the exception propagates through the RetryableTopic machinery.
+        // A null jobId inside @Async would be swallowed silently.
+        if (event.getJobId() == null) {
+            throw new InvalidRequestException(
+                    "Rejected unprocessable message: jobId is null (offset=" + offset + ")");
         }
+
+        log.info("CONSUME jobId={} language={} problemId={} topic={} offset={}",
+                event.getJobId(), event.getLanguage(), event.getProblemId(), topic, offset);
+
+        // Dispatch to async executor (Active Object pattern) THEN ack.
+        // If dispatch itself fails (OOM, executor shut down), we do NOT ack
+        // so RetryableTopic can retry.
+        codeExecutionService.executeAsync(event);
+        acknowledgment.acknowledge();
+
+        log.debug("DISPATCHED & ACKED jobId={}", event.getJobId());
     }
 
-    // ------------------------------------------------------------------ //
-    //  DLT HANDLER  (code.execution.requests-dlt)                       //
-    // ------------------------------------------------------------------ //
+    // ── DLT HANDLER: code.execution.requests-dlt ───────────────────────────
 
     /**
-     * Invoked automatically by the {@code @RetryableTopic} infrastructure after
-     * all retry attempts are exhausted, or immediately for non-retryable exceptions.
+     * Called after all retry attempts are exhausted or for non-retryable exceptions.
+     * Publishes a FAILED result so the submission is never stuck in QUEUED forever.
+     * Must NOT re-throw — any exception here would cause the DLT offset to not be
+     * committed, causing infinite reprocessing of the DLT message.
      *
-     * <p>Must NOT re-throw — that would cause an infinite DLT loop.
-     * Instead: log, emit metric, and publish a FAILED result event so the
-     * submission does not stay stuck in PENDING state forever.
+     * <h2>Why @Payload is byte[], not CodeExecutionRequestEvent</h2>
+     * The DLT is also fed when deserialization itself fails (e.g. a malformed JSON
+     * poison pill injected directly into the topic). In that case,
+     * ErrorHandlingDeserializer sets the deserialized value to null and stores the
+     * exception in a header. If the @Payload type were CodeExecutionRequestEvent,
+     * Spring would pass null, and event.getJobId() would throw NPE — crashing the
+     * DLT handler and silently dropping the message (failIfNoDestinationReturned=false).
+     *
+     * Accepting byte[] is always safe: Spring passes raw bytes regardless of whether
+     * deserialization succeeded or failed. jobId and submissionId are extracted from
+     * Kafka headers instead, which RetryableTopic copies through the retry chain and
+     * into the DLT message intact.
      */
     @DltHandler
     public void handleDlt(
-            @Payload  CodeExecutionRequestEvent event,
-            @Header(KafkaHeaders.RECEIVED_TOPIC)     String topic,
-            @Header(KafkaHeaders.RECEIVED_PARTITION) int    partition,
-            @Header(KafkaHeaders.OFFSET)             long   offset,
-            @Header(KafkaHeaders.EXCEPTION_MESSAGE)  String exceptionMessage) {
+            @Payload byte[] rawPayload,
+            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic,
+            @Header(KafkaHeaders.RECEIVED_PARTITION) int partition,
+            @Header(KafkaHeaders.OFFSET) long offset,
+            @Header(name = KafkaHeaders.EXCEPTION_MESSAGE, required = false) String exceptionMessage,
+            @Header(name = "jobId", required = false) String jobIdHeader,
+            @Header(name = "submissionId", required = false) String submissionIdHeader) {
 
-        log.error("[DLT] POISON MESSAGE — topic={} partition={} offset={} | " +
-                  "jobId={} lang={} error='{}' — manual intervention required",
-                topic, partition, offset,
-                event.getJobId(), event.getLanguage(), exceptionMessage);
+        log.error("DLT POISON REQUEST topic={} partition={} offset={} jobId={} error='{}' — manual intervention required",
+                topic, partition, offset, jobIdHeader, exceptionMessage);
 
-        // Best-effort: publish a FAILED result so submission is not stuck in PENDING
         try {
+            UUID jobId = (jobIdHeader != null && !jobIdHeader.isBlank())
+                    ? UUID.fromString(jobIdHeader) : null;
+            UUID submissionId = (submissionIdHeader != null && !submissionIdHeader.isBlank())
+                    ? UUID.fromString(submissionIdHeader) : null;
+
+            if (jobId == null) {
+                // Completely undeserializable poison pill injected externally —
+                // no legitimate submission to mark failed.
+                log.error("DLT: Cannot publish failed result — jobId header missing. " +
+                                "Raw payload size={} bytes. Likely an externally injected poison pill.",
+                        rawPayload != null ? rawPayload.length : 0);
+                return;
+            }
+
             codeExecutionService.publishFailedResult(
-                    event.getJobId(),
-                    event.getSubmissionId(),
-                    "Execution failed after all retries: " + exceptionMessage
-            );
+                    jobId,
+                    submissionId,
+                    "Execution request permanently failed after all retries: " + exceptionMessage);
+
         } catch (Exception ex) {
-            // Still must NOT re-throw from DLT handler
-            log.error("[DLT] Could not publish failed result for jobId={}: {}",
-                    event.getJobId(), ex.getMessage());
-        }
-    }
-
-    // ------------------------------------------------------------------ //
-    //  Private helpers                                                    //
-    // ------------------------------------------------------------------ //
-
-    private void validateEvent(CodeExecutionRequestEvent event) {
-        if (event.getJobId() == null) {
-            throw new NonRetryableExecutionException("jobId is null");
-        }
-        if (event.getSubmissionId() == null) {
-            throw new NonRetryableExecutionException("submissionId is null");
-        }
-        if (event.getLanguage() == null) {
-            throw new NonRetryableExecutionException("language is null");
-        }
-        if (event.getSourceCode() == null || event.getSourceCode().isBlank()) {
-            throw new NonRetryableExecutionException("sourceCode is blank for jobId=" + event.getJobId());
+            // Best-effort — must not re-throw from DLT handler.
+            log.error("DLT: Could not publish failed result for jobId={}: {}",
+                    jobIdHeader, ex.getMessage());
         }
     }
 }

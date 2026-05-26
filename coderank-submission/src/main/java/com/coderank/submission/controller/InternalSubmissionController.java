@@ -1,7 +1,7 @@
 package com.coderank.submission.controller;
 
 import com.coderank.common.enums.ExecutionStatus;
-import com.coderank.submission.enums.Verdict;
+import com.coderank.common.enums.Verdict;
 import com.coderank.submission.service.SubmissionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -29,7 +29,7 @@ public class InternalSubmissionController {
      * Called by the Result Processor to write execution outcome back.
      */
     @PatchMapping("/result")
-    @Operation(summary = "Update submission result – Result Processor only")
+    @Operation(summary = "Update submission result — Result Processor only")
     public ResponseEntity<Void> updateResult(
             @RequestParam UUID jobId,
             @RequestParam ExecutionStatus status,

@@ -25,11 +25,11 @@ import java.util.Map;
  * Kafka configuration for coderank-submission.
  *
  * Producer  → code.execution.requests   (fired by SubmissionService)
- * Consumer  ← code.execution.results    (handled by ExecutionResultConsumer)
+ * Consumer  → code.execution.results    (handled by ExecutionResultConsumer)
  *
- * Retry topics and DLT are created by @RetryableTopic — we only declare
- * the two primary topics and the DLT topic here via AdminClient beans
- * so they exist with the correct partition/replica settings.
+ * The DLT for code.execution.results is now correctly named
+ * code.execution.results-dlt (FAULT-09 FIX — was incorrectly using
+ * KafkaTopics.EXECUTION_REQUESTS_DLT).
  */
 @Configuration
 public class KafkaConfig {
@@ -40,9 +40,7 @@ public class KafkaConfig {
     @Value("${spring.kafka.consumer.group-id}")
     private String groupId;
 
-    // ================================================================== //
-    //  PRODUCER  (execution requests)                                    //
-    // ================================================================== //
+    // ── PRODUCER — execution requests ───────────────────────────────────────
 
     @Bean
     public ProducerFactory<String, Object> producerFactory() {
@@ -51,7 +49,7 @@ public class KafkaConfig {
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
         props.put(JsonSerializer.ADD_TYPE_INFO_HEADERS, false);
-        // Idempotent producer: exactly-once delivery guarantee
+        // Idempotent producer — exactly-once delivery guarantee
         props.put(ProducerConfig.ACKS_CONFIG, "all");
         props.put(ProducerConfig.RETRIES_CONFIG, 3);
         props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
@@ -63,9 +61,7 @@ public class KafkaConfig {
         return new KafkaTemplate<>(producerFactory());
     }
 
-    // ================================================================== //
-    //  CONSUMER  (execution results)                                     //
-    // ================================================================== //
+    // ── CONSUMER — execution results ────────────────────────────────────────
 
     @Bean
     public ConsumerFactory<String, CodeExecutionResultEvent> consumerFactory() {
@@ -78,7 +74,7 @@ public class KafkaConfig {
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 10);
         // ErrorHandlingDeserializer wraps JsonDeserializer so a bad JSON payload
         // does NOT crash the consumer — it produces a DeserializationException
-        // which @RetryableTopic routes straight to DLT (non-retryable).
+        // which RetryableTopic routes straight to DLT (non-retryable).
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
         props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
@@ -89,30 +85,35 @@ public class KafkaConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, CodeExecutionResultEvent>
-    kafkaListenerContainerFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, CodeExecutionResultEvent> kafkaListenerContainerFactory() {
         var factory = new ConcurrentKafkaListenerContainerFactory<String, CodeExecutionResultEvent>();
         factory.setConsumerFactory(consumerFactory());
-        // MANUAL_IMMEDIATE: ack offset right after acknowledgment.acknowledge()
+        // MANUAL_IMMEDIATE: offset committed right after acknowledgment.acknowledge()
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
         factory.setConcurrency(2);
         return factory;
     }
 
-    // ================================================================== //
-    //  TOPICS  (primary + DLT — retry topics auto-created by @RetryableTopic)
-    // ================================================================== //
+    // ── TOPICS ───────────────────────────────────────────────────────────────
+    // Primary topics — retry topics auto-created by @RetryableTopic
 
-    @Bean public NewTopic executionRequestsTopic() {
+    @Bean
+    public NewTopic executionRequestsTopic() {
         return TopicBuilder.name(KafkaTopics.EXECUTION_REQUESTS).partitions(3).replicas(1).build();
     }
 
-    @Bean public NewTopic executionResultsTopic() {
+    @Bean
+    public NewTopic executionResultsTopic() {
         return TopicBuilder.name(KafkaTopics.EXECUTION_RESULTS).partitions(3).replicas(1).build();
     }
 
-    @Bean public NewTopic executionResultsDltTopic() {
-        // DLT needs only 1 partition — messages arrive here only after exhausted retries
-        return TopicBuilder.name(KafkaTopics.EXECUTION_REQUESTS_DLT).partitions(1).replicas(1).build();
+    /**
+     * FAULT-09 FIX: DLT for code.execution.results must be
+     * KafkaTopics.EXECUTION_RESULTS_DLT ("code.execution.results-dlt"),
+     * NOT KafkaTopics.EXECUTION_REQUESTS_DLT ("code.execution.requests-dlt").
+     */
+    @Bean
+    public NewTopic executionResultsDltTopic() {
+        return TopicBuilder.name(KafkaTopics.EXECUTION_RESULTS_DLT).partitions(1).replicas(1).build();
     }
 }

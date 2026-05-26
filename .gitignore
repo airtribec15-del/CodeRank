@@ -65,8 +65,8 @@ docker-compose.override.yml
 
 # ----- Test output -----
 /test-output/
+htmlReport/
 
 # ----- Node (if any frontend tooling) -----
 node_modules/
 npm-debug.log*
-

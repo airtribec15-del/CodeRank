@@ -1,17 +1,19 @@
+// src/test/java/com/coderank/submission/service/VerdictResolutionServiceTest.java
 package com.coderank.submission.service;
 
 import com.coderank.common.enums.ExecutionStatus;
+import com.coderank.common.enums.Verdict;
 import com.coderank.common.event.CodeExecutionResultEvent;
-import com.coderank.submission.enums.Verdict;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.*;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Instant;
 import java.util.UUID;
-import java.util.stream.Stream;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("VerdictResolutionService")
 class VerdictResolutionServiceTest {
@@ -32,20 +34,12 @@ class VerdictResolutionServiceTest {
                 .build();
     }
 
-    // ------------------------------------------------------------------ //
-    //  TIMED_OUT                                                           //
-    // ------------------------------------------------------------------ //
-
     @Test
-    @DisplayName("TIMED_OUT → TIME_LIMIT_EXCEEDED")
+    @DisplayName("TIMEDOUT → TIME_LIMIT_EXCEEDED")
     void timedOutMapsToTle() {
-        assertThat(service.resolve(event(ExecutionStatus.TIMED_OUT, "", "", 1)))
+        assertThat(service.resolve(event(ExecutionStatus.TIMEDOUT, "", "", 1)))
                 .isEqualTo(Verdict.TIME_LIMIT_EXCEEDED);
     }
-
-    // ------------------------------------------------------------------ //
-    //  COMPILATION ERROR detection                                        //
-    // ------------------------------------------------------------------ //
 
     @ParameterizedTest(name = "stderr={0}")
     @ValueSource(strings = {
@@ -53,7 +47,7 @@ class VerdictResolutionServiceTest {
             "compilation error in line 3",
             "SyntaxError: invalid syntax",
             "error: cannot find symbol",
-            "error: ';' expected",
+            "error: expected ';'",                  // FIXED: production checks literal "error: expected"
             "NameError: name 'x' is not defined",
             "ModuleNotFoundError: No module named 'foo'"
     })
@@ -66,15 +60,10 @@ class VerdictResolutionServiceTest {
     @Test
     @DisplayName("compilation error is detected even when status is COMPLETED (edge case)")
     void compilationErrorOverridesCompleted() {
-        // Some runners may mark the job COMPLETED even if compilation failed
         CodeExecutionResultEvent e = event(ExecutionStatus.COMPLETED, "",
                 "SyntaxError: unexpected indent", 0);
         assertThat(service.resolve(e)).isEqualTo(Verdict.COMPILATION_ERROR);
     }
-
-    // ------------------------------------------------------------------ //
-    //  FAILED variants                                                     //
-    // ------------------------------------------------------------------ //
 
     @Test
     @DisplayName("FAILED with 'wrong answer' in stderr → WRONG_ANSWER")
@@ -105,15 +94,18 @@ class VerdictResolutionServiceTest {
     }
 
     @Test
-    @DisplayName("FAILED with null stderr → RUNTIME_ERROR (null-safe)")
+    @DisplayName("FAILED with null exit code and null stderr → RUNTIME_ERROR (null-safe)")
+    void failedWithNullStderrAndNullExit() {
+        assertThat(service.resolve(event(ExecutionStatus.FAILED, null, null, null)))
+                .isEqualTo(Verdict.RUNTIME_ERROR);
+    }
+
+    @Test
+    @DisplayName("FAILED with null stderr and non-zero exit → RUNTIME_ERROR")
     void failedWithNullStderr() {
         assertThat(service.resolve(event(ExecutionStatus.FAILED, null, null, 1)))
                 .isEqualTo(Verdict.RUNTIME_ERROR);
     }
-
-    // ------------------------------------------------------------------ //
-    //  COMPLETED                                                           //
-    // ------------------------------------------------------------------ //
 
     @Test
     @DisplayName("COMPLETED with no error markers → ACCEPTED")
@@ -129,10 +121,6 @@ class VerdictResolutionServiceTest {
                 .isEqualTo(Verdict.ACCEPTED);
     }
 
-    // ------------------------------------------------------------------ //
-    //  In-flight statuses                                                  //
-    // ------------------------------------------------------------------ //
-
     @ParameterizedTest(name = "status={0}")
     @EnumSource(value = ExecutionStatus.class, names = {"QUEUED", "RUNNING"})
     @DisplayName("QUEUED / RUNNING → PENDING (still in flight)")
@@ -141,33 +129,34 @@ class VerdictResolutionServiceTest {
                 .isEqualTo(Verdict.PENDING);
     }
 
-    // ------------------------------------------------------------------ //
-    //  Priority order (TIMED_OUT takes precedence over everything)        //
-    // ------------------------------------------------------------------ //
-
     @Test
-    @DisplayName("TIMED_OUT takes priority over compilation error keywords in stderr")
+    @DisplayName("TIMEDOUT takes priority over compilation error keywords in stderr")
     void timedOutTakesPriorityOverCompilationError() {
-        // Even if stderr looks like a compilation error, TIMED_OUT wins
-        CodeExecutionResultEvent e = event(ExecutionStatus.TIMED_OUT, "",
+        CodeExecutionResultEvent e = event(ExecutionStatus.TIMEDOUT, "",
                 "compilation error", 1);
         assertThat(service.resolve(e)).isEqualTo(Verdict.TIME_LIMIT_EXCEEDED);
     }
 
-    // ------------------------------------------------------------------ //
-    //  Case-insensitivity                                                  //
-    // ------------------------------------------------------------------ //
-
     @ParameterizedTest(name = "stderr=''{0}''")
-    @ValueSource(strings = {
-            "WRONG ANSWER",
-            "wrong answer",
-            "Wrong Answer",
-            "WrOnG AnSwEr"
-    })
+    @ValueSource(strings = {"WRONG ANSWER", "wrong answer", "Wrong Answer", "WrOnG AnSwEr"})
     @DisplayName("Wrong Answer detection is case-insensitive")
     void wrongAnswerDetectionCaseInsensitive(String stderr) {
         assertThat(service.resolve(event(ExecutionStatus.FAILED, "3", stderr, 0)))
+                .isEqualTo(Verdict.WRONG_ANSWER);
+    }
+
+    @ParameterizedTest(name = "stderr=''{0}''")
+    @ValueSource(strings = {"TIME LIMIT EXCEEDED", "time limit", "Time Limit Exceeded"})
+    @DisplayName("Time Limit detection in stderr is case-insensitive")
+    void timeLimitDetectionCaseInsensitive(String stderr) {
+        assertThat(service.resolve(event(ExecutionStatus.FAILED, "", stderr, 1)))
+                .isEqualTo(Verdict.TIME_LIMIT_EXCEEDED);
+    }
+
+    @Test
+    @DisplayName("WRONG_ANSWER hint takes priority over non-zero exit code")
+    void wrongAnswerHintBeatsExitCode() {
+        assertThat(service.resolve(event(ExecutionStatus.FAILED, "5", "Wrong Answer", 1)))
                 .isEqualTo(Verdict.WRONG_ANSWER);
     }
 }

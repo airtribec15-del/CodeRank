@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
@@ -15,8 +14,7 @@
     <name>CodeRank Problem Service</name>
 
     <dependencies>
-
-        <!-- CodeRank Common — enums, DTOs, exceptions, constants -->
+        <!-- CodeRank Common: enums, DTOs, exceptions, constants, events -->
         <dependency>
             <groupId>com.coderank</groupId>
             <artifactId>coderank-common</artifactId>
@@ -28,13 +26,13 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Spring Security — RBAC on endpoints -->
+        <!-- Spring Security: RBAC on endpoints -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
 
-        <!-- Spring Data JPA — ORM for PostgreSQL -->
+        <!-- Spring Data JPA: ORM for PostgreSQL -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
@@ -47,7 +45,7 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Redis — Cache-Aside for problem lookups -->
+        <!-- Redis: Cache-Aside for problem lookups -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
@@ -71,7 +69,7 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
-        <!-- JJWT — parse & validate JWT from X-User-* headers forwarded by Gateway -->
+        <!-- JJWT: parse/validate JWT from X-User-* headers forwarded by Gateway -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
@@ -87,7 +85,7 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Springdoc OpenAPI (Swagger UI) -->
+        <!-- Springdoc OpenAPI / Swagger UI -->
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
@@ -106,27 +104,52 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- ─── TEST SCOPE ─────────────────────────────── -->
+        <!-- Spring Kafka: Consumes state-update-events from Result Processor (Step 7) -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
 
+        <!--
+            WebClient for SubmissionServiceClient (Step 3 of locked flow).
+            spring-boot-starter-reactor-netty is EXCLUDED to prevent the Netty
+            embedded server from conflicting with the Tomcat server brought in by
+            spring-boot-starter-web. WebClient itself remains fully functional
+            on the classpath — only the server-side Netty bootstrap is removed.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-reactor-netty</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- TEST SCOPE -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
-
-        <!-- H2 — in-memory DB for unit tests (no Testcontainers needed at unit level) -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- H2 in-memory DB for unit tests -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
-
     </dependencies>
 
     <build>
@@ -145,5 +168,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>

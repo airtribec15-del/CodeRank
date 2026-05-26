@@ -1,62 +1,46 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# Stage 1 — Build
-#   Uses the same Maven + Temurin-21 Alpine image as gateway / auth / problem
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM maven:3.9.6-eclipse-temurin-21-alpine AS builder
-
-WORKDIR /workspace
-
-# ── Copy parent POM first (better layer caching) ──
-COPY pom.xml                          ./pom.xml
-COPY coderank-common/pom.xml          ./coderank-common/pom.xml
-COPY coderank-submission/pom.xml      ./coderank-submission/pom.xml
-
-# ── Pre-fetch all dependencies (cached unless pom changes) ──
-RUN mvn -pl coderank-common,coderank-submission \
-        dependency:go-offline \
-        --no-transfer-progress \
-        -q 2>/dev/null || true
-
-# ── Copy source ──
-COPY coderank-common/src   ./coderank-common/src
-COPY coderank-submission/src ./coderank-submission/src
-
-# ── Build — skip tests (run separately in CI) ──
-RUN mvn -pl coderank-common,coderank-submission -am \
-        -DskipTests \
-        --no-transfer-progress \
-        package 2>/dev/null || \
-    mvn -pl coderank-common,coderank-submission -am \
-        -DskipTests \
-        --no-transfer-progress \
-        package
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Stage 2 — Runtime
-#   Minimal JRE Alpine image — no JDK, no Maven, no build tools
-# ─────────────────────────────────────────────────────────────────────────────
-FROM eclipse-temurin:21-jre-alpine AS runtime
-
-# Non-root user for security
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 WORKDIR /app
 
-# Copy only the fat JAR from the build stage
-COPY --from=builder \
-     /workspace/coderank-submission/target/coderank-submission-*.jar \
-     app.jar
+# Copy parent POM
+COPY pom.xml .
 
-# Switch to non-root user
-USER appuser
+# Copy common module
+COPY coderank-common/pom.xml coderank-common/
+COPY coderank-common/src coderank-common/src
 
-# Submission service port
+# Copy submission module
+COPY coderank-submission/pom.xml coderank-submission/
+COPY coderank-submission/src coderank-submission/src
+
+# Step 1: Install parent POM without reactor validation
+RUN mvn install -N -DskipTests
+
+# Step 2: Build and install common directly
+RUN cd coderank-common && mvn install -DskipTests
+
+# Step 3: Build submission directly
+RUN cd coderank-submission && mvn install -DskipTests
+
+# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
+FROM eclipse-temurin:21-jre-alpine
+
+WORKDIR /app
+
+RUN addgroup -S coderank && adduser -S coderank -G coderank
+
+COPY --from=builder /app/coderank-submission/target/coderank-submission-*.jar app.jar
+
+RUN chown coderank:coderank app.jar
+
+USER coderank
+
 EXPOSE 8083
 
-# JVM tuning for containers:
-#   - UseContainerSupport  → honours Docker memory limits
-#   - MaxRAMPercentage=75  → use up to 75% of container memory for heap
-#   - ExitOnOutOfMemoryError → crash fast instead of hanging
+HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=3 \
+  CMD wget -qO- http://localhost:8083/actuator/health || exit 1
+
 ENTRYPOINT ["java", \
   "-XX:+UseContainerSupport", \
   "-XX:MaxRAMPercentage=75.0", \

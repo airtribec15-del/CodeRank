@@ -1,70 +1,59 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# Stage 1 — Build
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM maven:3.9.6-eclipse-temurin-21-alpine AS builder
-
-WORKDIR /workspace
-
-# ── Copy parent POM first ──
-COPY pom.xml                        ./pom.xml
-COPY coderank-common/pom.xml        ./coderank-common/pom.xml
-COPY coderank-execution/pom.xml     ./coderank-execution/pom.xml
-
-# ── Pre-fetch dependencies ──
-RUN mvn -pl coderank-common,coderank-execution \
-        dependency:go-offline \
-        --no-transfer-progress \
-        -q 2>/dev/null || true
-
-# ── Copy source ──
-COPY coderank-common/src   ./coderank-common/src
-COPY coderank-execution/src ./coderank-execution/src
-
-# ── Build ──
-RUN mvn -pl coderank-common,coderank-execution -am \
-        -DskipTests \
-        --no-transfer-progress \
-        package 2>/dev/null || \
-    mvn -pl coderank-common,coderank-execution -am \
-        -DskipTests \
-        --no-transfer-progress \
-        package
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Stage 2 — Runtime
-#   IMPORTANT: The execution service spawns Docker containers at runtime via
-#   the Docker Java SDK (unix:///var/run/docker.sock).
-#   The Docker socket is mounted at runtime via docker-compose — it is NOT
-#   baked into this image.  The host Docker engine is used (Docker-in-Docker
-#   is intentionally avoided for performance and security reasons).
-# ─────────────────────────────────────────────────────────────────────────────
-FROM eclipse-temurin:21-jre-alpine AS runtime
-
-# Install Docker CLI so the JVM can shell out if needed,
-# and curl for health-check probes
-RUN apk add --no-cache docker-cli curl
-
-# Non-root user — must be in the 'docker' group to access the socket
-# The GID 999 matches the docker group on most Linux hosts;
-# override via docker-compose if your host uses a different GID.
-RUN addgroup -g 999 docker 2>/dev/null || true && \
-    addgroup -S appgroup && \
-    adduser  -S appuser -G appgroup && \
-    adduser  appuser docker
 
 WORKDIR /app
 
-COPY --from=builder \
-     /workspace/coderank-execution/target/coderank-execution-*.jar \
-     app.jar
+COPY pom.xml .
+COPY coderank-common/pom.xml coderank-common/
+COPY coderank-common/src coderank-common/src
+COPY coderank-execution/pom.xml coderank-execution/
+COPY coderank-execution/src coderank-execution/src
 
-USER appuser
+RUN mvn install -N -DskipTests
+RUN cd coderank-common && mvn install -DskipTests -Dmaven.test.skip=true
+RUN cd coderank-execution && mvn install -DskipTests -Dmaven.test.skip=true
 
-# Execution service port
+# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
+FROM eclipse-temurin:21-jre-alpine
+
+WORKDIR /app
+
+
+# GID in-place without deleting it (avoids the delgroup-with-members failure).
+RUN apk add --no-cache docker-cli su-exec shadow
+
+RUN addgroup -S coderank \
+ && adduser  -S coderank -G coderank \
+ && addgroup -S docker \
+ && addgroup coderank docker
+
+COPY --from=builder /app/coderank-execution/target/coderank-execution-*.jar app.jar
+
+RUN chown coderank:coderank app.jar
+
 EXPOSE 8084
 
-ENTRYPOINT ["java", \
-  "-XX:+UseContainerSupport", \
-  "-XX:MaxRAMPercentage=75.0", \
-  "-XX:+ExitOnOutOfMemoryError", \
-  "-jar", "app.jar"]
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=3 \
+  CMD wget -qO- http://localhost:8084/actuator/health || exit 1
+
+# groupmod modifies the GID in-place — no need to remove members first.
+# The coderank user's docker membership is preserved automatically.
+ENTRYPOINT ["/bin/sh", "-c", "\
+  if [ -S /var/run/docker.sock ]; then \
+    SOCK_GID=$(stat -c '%g' /var/run/docker.sock); \
+    CUR_GID=$(getent group docker | cut -d: -f3); \
+    if [ \"$SOCK_GID\" != \"$CUR_GID\" ]; then \
+      EXISTING=$(getent group \"$SOCK_GID\" | cut -d: -f1); \
+      if [ -n \"$EXISTING\" ]; then \
+        addgroup coderank \"$EXISTING\" 2>/dev/null || true; \
+      else \
+        groupmod -g \"$SOCK_GID\" docker; \
+      fi; \
+    fi; \
+  fi; \
+  exec su-exec coderank java \
+    -XX:+UseContainerSupport \
+    -XX:MaxRAMPercentage=75.0 \
+    -XX:+ExitOnOutOfMemoryError \
+    -jar app.jar \
+"]

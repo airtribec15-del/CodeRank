@@ -1,121 +1,184 @@
+// src/test/java/com/coderank/submission/security/PreAuthenticatedUserFilterTest.java
 package com.coderank.submission.security;
 
-import org.junit.jupiter.api.*;
-import org.springframework.mock.web.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockFilterChain;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
-import jakarta.servlet.FilterChain;
+import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
+@ExtendWith(MockitoExtension.class)
 @DisplayName("PreAuthenticatedUserFilter")
 class PreAuthenticatedUserFilterTest {
 
     private final PreAuthenticatedUserFilter filter = new PreAuthenticatedUserFilter();
 
     @BeforeEach
-    void clearContext() {
+    void clearSecurityContext() {
         SecurityContextHolder.clearContext();
     }
 
     @AfterEach
-    void afterEach() {
+    void tearDown() {
         SecurityContextHolder.clearContext();
     }
 
     @Test
-    @DisplayName("sets Authentication when valid userId and role headers are present")
-    void shouldSetAuthWhenHeadersPresent() throws Exception {
-        MockHttpServletRequest  request  = new MockHttpServletRequest();
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        FilterChain chain = mock(FilterChain.class);
-
-        String userId = "550e8400-e29b-41d4-a716-446655440000";
+    @DisplayName("sets Authentication with userId as principal and ROLE_USER when headers present")
+    void shouldAuthenticateWithUserRole() throws Exception {
+        String userId = UUID.randomUUID().toString();
+        MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader(PreAuthenticatedUserFilter.HEADER_USER_ID, userId);
         request.addHeader(PreAuthenticatedUserFilter.HEADER_ROLE, "ROLE_USER");
 
-        filter.doFilterInternal(request, response, chain);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
 
-        var auth = SecurityContextHolder.getContext().getAuthentication();
+        filter.doFilter(request, response, chain);
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         assertThat(auth).isNotNull();
         assertThat(auth.getPrincipal()).isEqualTo(userId);
+        assertThat(auth.isAuthenticated()).isTrue();
         assertThat(auth.getAuthorities())
-                .anyMatch(a -> a.getAuthority().equals("ROLE_USER"));
-        verify(chain).doFilter(request, response);
+                .extracting(a -> a.getAuthority())
+                .containsExactly("ROLE_USER");
+        assertThat(chain.getRequest()).isSameAs(request);
     }
 
     @Test
-    @DisplayName("sets ROLE_USER as default when role header is absent")
-    void shouldDefaultToRoleUserWhenRoleMissing() throws Exception {
-        MockHttpServletRequest  request  = new MockHttpServletRequest();
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        FilterChain chain = mock(FilterChain.class);
-
-        request.addHeader(PreAuthenticatedUserFilter.HEADER_USER_ID,
-                "550e8400-e29b-41d4-a716-446655440000");
-
-        filter.doFilterInternal(request, response, chain);
-
-        var auth = SecurityContextHolder.getContext().getAuthentication();
-        assertThat(auth.getAuthorities())
-                .anyMatch(a -> a.getAuthority().equals("ROLE_USER"));
-    }
-
-    @Test
-    @DisplayName("sets ROLE_ADMIN when admin role header is present")
-    void shouldSetAdminRole() throws Exception {
-        MockHttpServletRequest  request  = new MockHttpServletRequest();
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        FilterChain chain = mock(FilterChain.class);
-
-        request.addHeader(PreAuthenticatedUserFilter.HEADER_USER_ID,
-                "550e8400-e29b-41d4-a716-446655440001");
+    @DisplayName("sets ROLE_ADMIN authority when X-User-Role is ROLE_ADMIN")
+    void shouldAuthenticateWithAdminRole() throws Exception {
+        String userId = UUID.randomUUID().toString();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(PreAuthenticatedUserFilter.HEADER_USER_ID, userId);
         request.addHeader(PreAuthenticatedUserFilter.HEADER_ROLE, "ROLE_ADMIN");
 
-        filter.doFilterInternal(request, response, chain);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
 
-        var auth = SecurityContextHolder.getContext().getAuthentication();
+        filter.doFilter(request, response, chain);
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(auth).isNotNull();
         assertThat(auth.getAuthorities())
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+                .extracting(a -> a.getAuthority())
+                .containsExactly("ROLE_ADMIN");
     }
 
     @Test
-    @DisplayName("does NOT set Authentication when userId header is absent")
-    void shouldNotSetAuthWhenUserIdMissing() throws Exception {
-        MockHttpServletRequest  request  = new MockHttpServletRequest();
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        FilterChain chain = mock(FilterChain.class);
+    @DisplayName("defaults to ROLE_USER when X-User-Role header is absent")
+    void shouldDefaultToRoleUserWhenRoleHeaderAbsent() throws Exception {
+        String userId = UUID.randomUUID().toString();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(PreAuthenticatedUserFilter.HEADER_USER_ID, userId);
 
-        filter.doFilterInternal(request, response, chain);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(auth).isNotNull();
+        assertThat(auth.getAuthorities())
+                .extracting(a -> a.getAuthority())
+                .containsExactly("ROLE_USER");
+    }
+
+    @Test
+    @DisplayName("defaults to ROLE_USER when X-User-Role header is blank")
+    void shouldDefaultToRoleUserWhenRoleHeaderBlank() throws Exception {
+        String userId = UUID.randomUUID().toString();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(PreAuthenticatedUserFilter.HEADER_USER_ID, userId);
+        request.addHeader(PreAuthenticatedUserFilter.HEADER_ROLE, "   ");
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(auth).isNotNull();
+        assertThat(auth.getAuthorities())
+                .extracting(a -> a.getAuthority())
+                .containsExactly("ROLE_USER");
+    }
+
+    @Test
+    @DisplayName("does NOT set Authentication when X-Authenticated-User-Id header is absent")
+    void shouldNotAuthenticateWhenUserIdHeaderAbsent() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
-        verify(chain).doFilter(request, response);
+        assertThat(chain.getRequest()).isSameAs(request);
     }
 
     @Test
-    @DisplayName("does NOT set Authentication when userId header is blank")
-    void shouldNotSetAuthWhenUserIdBlank() throws Exception {
-        MockHttpServletRequest  request  = new MockHttpServletRequest();
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        FilterChain chain = mock(FilterChain.class);
-
+    @DisplayName("does NOT set Authentication when X-Authenticated-User-Id is blank whitespace")
+    void shouldNotAuthenticateWhenUserIdIsBlank() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
         request.addHeader(PreAuthenticatedUserFilter.HEADER_USER_ID, "   ");
 
-        filter.doFilterInternal(request, response, chain);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
 
     @Test
-    @DisplayName("always continues filter chain even without headers")
-    void shouldAlwaysContinueChain() throws Exception {
-        MockHttpServletRequest  request  = new MockHttpServletRequest();
+    @DisplayName("does NOT set Authentication when X-Authenticated-User-Id is empty string")
+    void shouldNotAuthenticateWhenUserIdIsEmpty() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(PreAuthenticatedUserFilter.HEADER_USER_ID, "");
+
         MockHttpServletResponse response = new MockHttpServletResponse();
-        FilterChain chain = mock(FilterChain.class);
+        MockFilterChain chain = new MockFilterChain();
 
-        filter.doFilterInternal(request, response, chain);
+        filter.doFilter(request, response, chain);
 
-        verify(chain, times(1)).doFilter(request, response);
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    @DisplayName("always passes the request down the filter chain (no headers)")
+    void shouldAlwaysCallFilterChain() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(chain.getRequest()).isSameAs(request);
+        assertThat(chain.getResponse()).isSameAs(response);
+    }
+
+    @Test
+    @DisplayName("always passes the request down the filter chain (with auth headers)")
+    void shouldAlwaysCallFilterChainWithAuth() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(PreAuthenticatedUserFilter.HEADER_USER_ID, UUID.randomUUID().toString());
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertThat(chain.getRequest()).isSameAs(request);
     }
 }

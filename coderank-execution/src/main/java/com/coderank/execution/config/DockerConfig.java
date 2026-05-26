@@ -13,13 +13,15 @@ import java.time.Duration;
 @Configuration
 public class DockerConfig {
 
-    @Value("${execution.docker.socket:unix:///var/run/docker.sock}")
-    private String dockerSocket;
+    // Reads DOCKER_HOST env var injected by docker-compose.yml.
+    // Falls back to unix socket only on native Linux where the socket is mounted.
+    @Value("${DOCKER_HOST:unix:///var/run/docker.sock}")
+    private String dockerHost;
 
     @Bean
     public DockerClient dockerClient() {
         DefaultDockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
-                .withDockerHost(dockerSocket)
+                .withDockerHost(dockerHost)
                 .build();
 
         ApacheDockerHttpClient httpClient = new ApacheDockerHttpClient.Builder()

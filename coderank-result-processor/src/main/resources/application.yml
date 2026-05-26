@@ -1,0 +1,82 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: coderank-result-processor
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: coderank-result-processor-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.coderank.common.event"
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: "com.coderank.common.event.CodeExecutionResultEvent"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      properties:
+        spring.json.add.type.headers: false
+        enable.idempotence: true
+
+# Submission Service internal base URL
+submission-service:
+  url: ${SUBMISSION_SERVICE_URL:http://coderank-submission:8083}
+
+# Redis TTL for cached job results
+result-processor:
+  cache:
+    job-result-ttl-hours: 24
+
+# Resilience4j — circuit breaker for SubmissionServiceClient
+resilience4j:
+  circuitbreaker:
+    instances:
+      submissionServiceClient:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+  retry:
+    instances:
+      submissionServiceClient:
+        maxAttempts: 3
+        waitDuration: 500ms
+        retryExceptions:
+          - org.springframework.web.reactive.function.client.WebClientRequestException
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+# SpringDoc
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    com.coderank.resultprocessor: DEBUG
+    org.springframework.kafka: INFO

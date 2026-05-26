@@ -1,26 +1,31 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
     username: sa
     password:
-    driver-class-name: org.h2.Driver
-
   jpa:
     hibernate:
       ddl-auto: create-drop
-    database-platform: org.hibernate.dialect.H2Dialect
-    show-sql: false
     properties:
       hibernate:
-        format_sql: false
-
+        dialect: org.hibernate.dialect.H2Dialect
   flyway:
-    enabled: false   # DDL handled by ddl-auto: create-drop in tests
-
+    enabled: false
   data:
     redis:
       host: localhost
       port: 6379
+  # Disable Kafka auto-connect so the context loads without a running broker
+  kafka:
+    bootstrap-servers: localhost:9092
+    listener:
+      auto-startup: false
 
-  cache:
-    type: none        # Disable Redis-backed cache in unit/slice tests
+submission-service:
+  url: http://localhost:8083
+
+logging:
+  level:
+    org.apache.kafka: OFF
+    org.springframework.kafka: OFF

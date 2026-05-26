@@ -1,6 +1,10 @@
 package com.coderank.problem.controller;
 
+import com.coderank.common.dto.response.SubmissionResponse;
+import com.coderank.problem.client.SubmissionServiceClient;
+import com.coderank.problem.client.SubmitCodeRequest;
 import com.coderank.problem.dto.request.CreateProblemRequest;
+import com.coderank.problem.dto.request.ProblemSubmitRequest;
 import com.coderank.problem.dto.request.UpdateProblemRequest;
 import com.coderank.problem.dto.response.ProblemDetailResponse;
 import com.coderank.problem.dto.response.ProblemSummaryResponse;
@@ -28,6 +32,7 @@ import java.util.UUID;
 public class ProblemController {
 
     private final ProblemService problemService;
+    private final SubmissionServiceClient submissionServiceClient;
 
     @GetMapping
     @Operation(summary = "List all published problems (paginated)")
@@ -79,5 +84,54 @@ public class ProblemController {
     public ResponseEntity<Void> deleteProblem(@PathVariable UUID id) {
         problemService.deleteProblem(id);
         return ResponseEntity.noContent().build();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // LOCKED FLOW STEP 2-3: Client → Gateway → Problem Service → Submission Service
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Entry point for code submission in the locked flow.
+     *
+     * <p><strong>Flow:</strong>
+     * <ol>
+     *   <li>Client POSTs here via Gateway with JWT (validated by Gateway)</li>
+     *   <li>Gateway injects X-User-Id + X-User-Role headers and routes here</li>
+     *   <li>Problem Service verifies problem exists and is PUBLISHED</li>
+     *   <li>Problem Service forwards to Submission Service via {@link SubmissionServiceClient}</li>
+     *   <li>Returns 202 Accepted with jobId back to client</li>
+     * </ol>
+     * </p>
+     *
+     * @param problemId  path variable — the problem being submitted against
+     * @param request    body — language + sourceCode
+     * @param userId     injected by Gateway as X-User-Id (via GatewayAuthenticationFilter)
+     * @param userRole   injected by Gateway as X-User-Role (forwarded to Submission Service)
+     */
+    @PostMapping("/{id}/submit")
+    @Operation(summary = "Submit code for a problem")
+    public ResponseEntity<SubmissionResponse> submitCode(
+            @PathVariable("id") UUID problemId,
+            @Valid @RequestBody ProblemSubmitRequest request,
+            @AuthenticationPrincipal String userId,
+            @RequestHeader("X-User-Role") String userRole) {
+
+        // Step 1: Verify the problem exists and is PUBLISHED (throws if not)
+        problemService.verifyProblemPublished(problemId);
+
+        // Step 2: Build the enriched payload with problemId for Submission Service
+        SubmitCodeRequest submitRequest = SubmitCodeRequest.builder()
+                .problemId(problemId)
+                .language(request.getLanguage())
+                .sourceCode(request.getSourceCode())
+                .build();
+
+        // Step 3: Forward to Submission Service; returns 202 Accepted with jobId
+        SubmissionResponse response = submissionServiceClient.forwardSubmission(
+                submitRequest,
+                UUID.fromString(userId),
+                userRole);
+
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 }

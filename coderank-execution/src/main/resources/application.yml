@@ -9,9 +9,18 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      timeout: 2000ms
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+        spring.json.add.type.headers: false
     consumer:
       group-id: coderank-execution-group
       auto-offset-reset: earliest
@@ -24,28 +33,17 @@ spring:
         spring.json.value.default.type: com.coderank.common.event.CodeExecutionRequestEvent
         spring.json.use.type.headers: false
         max.poll.records: 5
-    producer:
-      key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-      acks: all
-      retries: 3
-      properties:
-        enable.idempotence: true
-        spring.json.add.type.headers: false
 
+# ── Problem Service internal call (FAULT-02 FIX) ──────────────────────────────
+problem-service:
+  url: http://${PROBLEM_SERVICE_HOST:coderank-problem}:8082
+
+# ── Docker sandbox config ──────────────────────────────────────────────────────
 execution:
   docker:
-    socket: ${DOCKER_SOCKET:unix:///var/run/docker.sock}
-    timeout-seconds: ${EXECUTION_TIMEOUT:10}
+    timeout-seconds: ${EXECUTION_TIMEOUT_SECONDS:10}
     memory-limit-mb: ${EXECUTION_MEMORY_MB:128}
-    cpu-period: 100000
-    cpu-quota: 50000   # 50% of one core
-    network-disabled: true
-  images:
-    python: python:3.11-slim
-    java: openjdk:21-slim
-    javascript: node:20-slim
-    cpp: gcc:13
+    cpu-quota: ${EXECUTION_CPU_QUOTA:50000}
 
 management:
   endpoints:
@@ -55,6 +53,12 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
 
 logging:
   level:

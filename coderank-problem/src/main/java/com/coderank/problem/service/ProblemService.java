@@ -190,6 +190,23 @@ public class ProblemService {
 
 
     // ─── HELPERS ─────────────────────────────────────────────────────────────
+    /**
+     * Verifies a problem exists and is in the PUBLISHED state.
+     *
+     * <p>Called by {@code ProblemController.submitCode()} (Step 2 of locked flow)
+     * before forwarding to Submission Service. Prevents submissions against
+     * non-existent or draft/archived problems.</p>
+     *
+     * @param problemId the problem UUID from the path variable
+     * @throws com.coderank.common.exception.InvalidRequestException if not found or not PUBLISHED
+     */
+    public void verifyProblemPublished(UUID problemId) {
+        Problem problem = findByIdOrThrow(problemId);
+        if (!ProblemState.PUBLISHED.equals(problem.getState())) {
+            throw new InvalidRequestException(
+                    "Problem is not available for submission: " + problemId);
+        }
+    }
 
     private Problem findByIdOrThrow(UUID id) {
         return problemRepository.findById(id)

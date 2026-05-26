@@ -15,7 +15,7 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Reads the X-Authenticated-User-Id and X-User-Role headers injected
+ * Reads the X-User-Id and X-User-Role headers injected
  * by the API Gateway (after JWT validation) and builds a Spring Security
  * Authentication so @AuthenticationPrincipal and @PreAuthorize work.
  */
@@ -23,7 +23,8 @@ import java.util.List;
 @Component
 public class PreAuthenticatedUserFilter extends OncePerRequestFilter {
 
-    public static final String HEADER_USER_ID = "X-Authenticated-User-Id";
+    // Must match exactly what the Gateway injects — verified from GatewayAuthenticationFilter
+    public static final String HEADER_USER_ID = "X-User-Id";
     public static final String HEADER_ROLE    = "X-User-Role";
 
     @Override

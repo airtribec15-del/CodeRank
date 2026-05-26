@@ -1,158 +1,124 @@
+// src/test/java/com/coderank/submission/exception/SubmissionExceptionHandlerTest.java
 package com.coderank.submission.exception;
 
-import com.coderank.common.dto.response.ErrorResponse;
 import com.coderank.common.exception.CodeRankException;
 import com.coderank.common.exception.InvalidRequestException;
 import com.coderank.common.exception.ResourceNotFoundException;
-import jakarta.servlet.http.HttpServletRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.*;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.validation.BindingResult;
-import org.springframework.validation.FieldError;
-import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @DisplayName("SubmissionExceptionHandler")
 class SubmissionExceptionHandlerTest {
 
-    private final SubmissionExceptionHandler handler = new SubmissionExceptionHandler();
-    private HttpServletRequest request;
+    @RestController
+    @RequestMapping("/test")
+    static class TestController {
+
+        @GetMapping("/invalid")
+        public void throwInvalid() {
+            throw new InvalidRequestException("Bad input supplied");
+        }
+
+        @GetMapping("/notfound")
+        public void throwNotFound() {
+            throw new ResourceNotFoundException("Submission", "abc-123");
+        }
+
+        @GetMapping("/coderank")
+        public void throwCodeRank() {
+            throw new CodeRankException("Custom error",
+                    HttpStatus.CONFLICT, "CONFLICT_CODE");
+        }
+
+        @GetMapping("/generic")
+        public void throwGeneric() {
+            throw new RuntimeException("unexpected internal error");
+        }
+
+        @PostMapping("/validation")
+        public void triggerValidation(
+                @org.springframework.web.bind.annotation.RequestBody
+                @jakarta.validation.Valid
+                ValidBody body) {}
+
+        record ValidBody(
+                @jakarta.validation.constraints.NotBlank(message = "name required") String name) {}
+    }
+
+    private MockMvc mockMvc;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
-        request = mock(HttpServletRequest.class);
-        when(request.getRequestURI()).thenReturn("/api/v1/submissions");
+        mockMvc = MockMvcBuilders
+                .standaloneSetup(new TestController())
+                .setControllerAdvice(new SubmissionExceptionHandler())
+                .build();
     }
 
-    // ------------------------------------------------------------------ //
-    //  CodeRankException                                                   //
-    // ------------------------------------------------------------------ //
-
-    @Nested @DisplayName("handleCodeRankException")
-    class HandleCodeRankException {
-
-        @Test
-        @DisplayName("maps 400 InvalidRequestException correctly")
-        void shouldMap400ForInvalidRequest() {
-            InvalidRequestException ex = new InvalidRequestException("Bad input");
-
-            ResponseEntity<ErrorResponse> response = handler.handleCodeRankException(ex, request);
-
-            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-            assertThat(response.getBody()).isNotNull();
-            assertThat(response.getBody().getStatus()).isEqualTo(400);
-            assertThat(response.getBody().getError()).isEqualTo("INVALID_REQUEST");
-            assertThat(response.getBody().getMessage()).isEqualTo("Bad input");
-            assertThat(response.getBody().getPath()).isEqualTo("/api/v1/submissions");
-        }
-
-        @Test
-        @DisplayName("maps 404 ResourceNotFoundException correctly")
-        void shouldMap404ForResourceNotFound() {
-            ResourceNotFoundException ex = new ResourceNotFoundException("Submission", "abc-123");
-
-            ResponseEntity<ErrorResponse> response = handler.handleCodeRankException(ex, request);
-
-            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-            assertThat(response.getBody().getStatus()).isEqualTo(404);
-            assertThat(response.getBody().getError()).isEqualTo("RESOURCE_NOT_FOUND");
-        }
-
-        @Test
-        @DisplayName("preserves custom HTTP status from CodeRankException")
-        void shouldPreserveCustomStatus() {
-            CodeRankException ex = new CodeRankException(
-                    "Rate limited", HttpStatus.TOO_MANY_REQUESTS, "RATE_LIMITED");
-
-            ResponseEntity<ErrorResponse> response = handler.handleCodeRankException(ex, request);
-
-            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
-            assertThat(response.getBody().getStatus()).isEqualTo(429);
-        }
+    @Test
+    @DisplayName("handles InvalidRequestException → 400 with INVALID_REQUEST error code")
+    void shouldHandle400ForInvalidRequest() throws Exception {
+        mockMvc.perform(get("/test/invalid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.message").value("Bad input supplied"))
+                .andExpect(jsonPath("$.path").value("/test/invalid"))
+                .andExpect(jsonPath("$.timestamp").isNotEmpty());
     }
 
-    // ------------------------------------------------------------------ //
-    //  MethodArgumentNotValidException                                     //
-    // ------------------------------------------------------------------ //
-
-    @Nested @DisplayName("handleValidation")
-    class HandleValidation {
-
-        @Test
-        @DisplayName("returns 400 with fieldErrors list")
-        void shouldReturn400WithFieldErrors() {
-            MethodArgumentNotValidException ex = mock(MethodArgumentNotValidException.class);
-            BindingResult bindingResult = mock(BindingResult.class);
-
-            FieldError fieldError = new FieldError("submitRequest", "language",
-                    "Language must not be null");
-            when(bindingResult.getFieldErrors()).thenReturn(List.of(fieldError));
-            when(ex.getBindingResult()).thenReturn(bindingResult);
-
-            ResponseEntity<ErrorResponse> response = handler.handleValidation(ex, request);
-
-            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-            assertThat(response.getBody().getError()).isEqualTo("VALIDATION_FAILED");
-            assertThat(response.getBody().getFieldErrors()).hasSize(1);
-            assertThat(response.getBody().getFieldErrors().get(0).getField()).isEqualTo("language");
-            assertThat(response.getBody().getFieldErrors().get(0).getMessage())
-                    .isEqualTo("Language must not be null");
-        }
-
-        @Test
-        @DisplayName("handles multiple field errors")
-        void shouldHandleMultipleFieldErrors() {
-            MethodArgumentNotValidException ex = mock(MethodArgumentNotValidException.class);
-            BindingResult bindingResult = mock(BindingResult.class);
-
-            List<FieldError> errors = List.of(
-                    new FieldError("r", "language", "Language must not be null"),
-                    new FieldError("r", "sourceCode", "Source code must not be blank"),
-                    new FieldError("r", "problemId", "Problem ID must not be null")
-            );
-            when(bindingResult.getFieldErrors()).thenReturn(errors);
-            when(ex.getBindingResult()).thenReturn(bindingResult);
-
-            ResponseEntity<ErrorResponse> response = handler.handleValidation(ex, request);
-
-            assertThat(response.getBody().getFieldErrors()).hasSize(3);
-        }
+    @Test
+    @DisplayName("handles ResourceNotFoundException → 404 with RESOURCE_NOT_FOUND error code")
+    void shouldHandle404ForResourceNotFound() throws Exception {
+        mockMvc.perform(get("/test/notfound"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("Submission not found with identifier: abc-123"));
     }
 
-    // ------------------------------------------------------------------ //
-    //  Generic Exception                                                   //
-    // ------------------------------------------------------------------ //
+    @Test
+    @DisplayName("handles CodeRankException with custom status and error code")
+    void shouldHandleGenericCodeRankException() throws Exception {
+        mockMvc.perform(get("/test/coderank"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("CONFLICT_CODE"))
+                .andExpect(jsonPath("$.message").value("Custom error"));
+    }
 
-    @Nested @DisplayName("handleGeneric")
-    class HandleGeneric {
+    @Test
+    @DisplayName("handles generic Exception → 500 with INTERNAL_ERROR code")
+    void shouldHandle500ForGenericException() throws Exception {
+        mockMvc.perform(get("/test/generic"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.status").value(500))
+                .andExpect(jsonPath("$.error").value("INTERNAL_ERROR"));
+    }
 
-        @Test
-        @DisplayName("returns 500 for unexpected RuntimeException")
-        void shouldReturn500ForUnexpectedException() {
-            RuntimeException ex = new RuntimeException("Unexpected NullPointerException");
+    @Test
+    @DisplayName("handles MethodArgumentNotValidException → 400 with field errors list")
+    void shouldHandle400ForBeanValidation() throws Exception {
+        String body = objectMapper.writeValueAsString(new TestController.ValidBody(""));
 
-            ResponseEntity<ErrorResponse> response = handler.handleGeneric(ex, request);
-
-            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
-            assertThat(response.getBody().getStatus()).isEqualTo(500);
-            assertThat(response.getBody().getError()).isEqualTo("INTERNAL_ERROR");
-            assertThat(response.getBody().getMessage()).isEqualTo("An unexpected error occurred");
-        }
-
-        @Test
-        @DisplayName("includes request URI in the error response path")
-        void shouldIncludeRequestUriInPath() {
-            when(request.getRequestURI()).thenReturn("/api/v1/execute");
-            RuntimeException ex = new RuntimeException("boom");
-
-            ResponseEntity<ErrorResponse> response = handler.handleGeneric(ex, request);
-
-            assertThat(response.getBody().getPath()).isEqualTo("/api/v1/execute");
-        }
+        mockMvc.perform(post("/test/validation")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.message").value("Request validation failed"))
+                .andExpect(jsonPath("$.fieldErrors").isArray())
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("name"))
+                .andExpect(jsonPath("$.fieldErrors[0].message").value("name required"));
     }
 }

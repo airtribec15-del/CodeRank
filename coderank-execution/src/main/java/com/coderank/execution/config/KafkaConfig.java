@@ -3,7 +3,6 @@ package com.coderank.execution.config;
 import com.coderank.common.constants.KafkaTopics;
 import com.coderank.common.event.CodeExecutionRequestEvent;
 import com.coderank.common.event.CodeExecutionResultEvent;
-import com.coderank.execution.exception.NonRetryableExecutionException;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
@@ -32,9 +31,16 @@ import java.util.Map;
  * Key decisions:
  *  - ErrorHandlingDeserializer wraps JsonDeserializer → bad JSON payload goes
  *    to DLT instead of crashing the consumer partition.
- *  - Offset mode MANUAL_IMMEDIATE on consumer factory — for the execution
- *    consumer we ack BEFORE the Docker run (justified in ExecutionRequestConsumer).
+ *  - Offset mode MANUAL_IMMEDIATE on consumer factory — the consumer acks after
+ *    dispatching to the executionTaskExecutor thread pool.
  *  - Idempotent producer with acks=all on result publisher.
+ *  - concurrency(1): @RetryableTopic registers a second internal listener
+ *    container on the main topic for retry-classification routing. With
+ *    concurrency > 1 this creates multiple active containers that all receive
+ *    the same message, causing every event to be dispatched N times.
+ *    Horizontal throughput scaling belongs at the partition/replica level
+ *    (more coderank-execution instances), not within a single JVM.
+ *    The executionTaskExecutor thread pool handles intra-JVM parallelism.
  */
 @Configuration
 public class KafkaConfig {
@@ -72,8 +78,14 @@ public class KafkaConfig {
         var factory = new ConcurrentKafkaListenerContainerFactory<String, CodeExecutionRequestEvent>();
         factory.setConsumerFactory(executionRequestConsumerFactory());
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
-        // One thread per partition — 3 partitions on requests topic
-        factory.setConcurrency(3);
+        // FIX: concurrency MUST be 1.
+        // @RetryableTopic registers a second internal listener container on the
+        // main topic for retry classification. With concurrency > 1, multiple
+        // container instances are created and all receive the same message,
+        // causing every event to be dispatched (concurrency) times.
+        // Scale throughput horizontally via additional coderank-execution
+        // replicas — each replica gets its own partition assignment.
+        factory.setConcurrency(1);
         return factory;
     }
 

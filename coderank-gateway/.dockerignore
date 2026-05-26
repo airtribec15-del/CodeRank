@@ -1,0 +1,32 @@
+# Build output
+target/
+**/target/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+*.classpath
+*.project
+*.factorypath
+
+# Git
+.git/
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Maven wrapper
+!.mvn/wrapper/maven-wrapper.jar
+
+# Docker itself
+Dockerfile
+.dockerignore
+
+# Test / docs
+**/*Test.java
+**/test/
+README.md
+docs/

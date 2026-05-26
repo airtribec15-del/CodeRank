@@ -5,8 +5,10 @@
 # ----- Project-specific exclusions -----
 Code_builder.py
 codebase_context.txt
-*.py
-*.txt
+file_architecture.html
+file_architecture.py
+file_architecture.txt
+files.txt
 
 # ----- Maven -----
 target/

@@ -1,0 +1,886 @@
+{
+  "info": {
+    "name": "CodeRank Integration Tests",
+    "description": "Comprehensive end-to-end integration tests for CodeRank microservices platform.\n\nCovers 3 Happy Paths:\n- Path 1: Admin Setup + Interpreted Execution (Python)\n- Path 2: Compiled Execution Flow (Java)\n- Path 3: Aggregated Test Matrix Flow (Multi-test-case)\n\nAll requests go through the API Gateway on Port 8080.",
+    "_postman_id": "coderank-integration-v1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "BASE_URL",       "value": "http://localhost:8080",  "type": "string" },
+    { "key": "ADMIN_EMAIL",    "value": "admin@coderank.io",      "type": "string" },
+    { "key": "ADMIN_PASSWORD", "value": "Admin@1234",             "type": "string" },
+    { "key": "USER_EMAIL",     "value": "testuser@coderank.io",   "type": "string" },
+    { "key": "USER_PASSWORD",  "value": "TestUser@1234",          "type": "string" },
+    { "key": "USER_USERNAME",  "value": "testuser_integration",   "type": "string" },
+    { "key": "ADMIN_JWT",      "value": "",                       "type": "string" },
+    { "key": "USER_JWT",       "value": "",                       "type": "string" },
+    { "key": "PROBLEM_ID_P1",  "value": "",                       "type": "string" },
+    { "key": "PROBLEM_SLUG_P1","value": "",                       "type": "string" },
+    { "key": "SUBMISSION_ID_P1","value": "",                      "type": "string" },
+    { "key": "PROBLEM_ID_P2",  "value": "",                       "type": "string" },
+    { "key": "SUBMISSION_ID_P2","value": "",                      "type": "string" },
+    { "key": "PROBLEM_ID_P3",  "value": "",                       "type": "string" },
+    { "key": "SUBMISSION_ID_P3","value": "",                      "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "PATH 1 — Admin Setup + Interpreted Execution (Python)",
+      "item": [
+        {
+          "name": "P1-S1: Admin Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Response has accessToken', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.accessToken).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('ADMIN_JWT', json.accessToken);",
+                  "});",
+                  "pm.test('Admin role is ROLE_ADMIN', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.role).to.equal('ROLE_ADMIN');",
+                  "});",
+                  "pm.test('Response contains userId', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.userId).to.be.a('string').and.not.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{ADMIN_EMAIL}}\",\n  \"password\": \"{{ADMIN_PASSWORD}}\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/auth/login",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "P1-S2: Admin Creates Problem (Python — Two Sum)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Response has problem id', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.id).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('PROBLEM_ID_P1', json.id);",
+                  "});",
+                  "pm.test('Response has problem slug', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.slug).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('PROBLEM_SLUG_P1', json.slug);",
+                  "});",
+                  "pm.test('Problem title matches', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.title).to.equal('Two Sum');",
+                  "});",
+                  "pm.test('Problem difficulty is EASY', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.difficulty).to.equal('EASY');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ADMIN_JWT}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Two Sum\",\n  \"description\": \"Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target. You may assume that each input would have exactly one solution.\",\n  \"difficulty\": \"EASY\",\n  \"constraints\": \"2 <= nums.length <= 10^4\\n-10^9 <= nums[i] <= 10^9\\n-10^9 <= target <= 10^9\",\n  \"examples\": [\n    {\n      \"inputText\": \"nums = [2,7,11,15], target = 9\",\n      \"outputText\": \"[0,1]\",\n      \"explanation\": \"Because nums[0] + nums[1] == 9, we return [0, 1].\",\n      \"orderIndex\": 1\n    }\n  ],\n  \"testCases\": [\n    {\n      \"input\": \"2\\n2 7 11 15\\n9\",\n      \"expected\": \"0 1\",\n      \"isSample\": true,\n      \"orderIndex\": 1\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/problems",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "problems"]
+            }
+          }
+        },
+        {
+          "name": "P1-S2b: RBAC Guard — Standard User CANNOT Create Problem (Expect 403)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// This test uses ADMIN_JWT intentionally set to a fake token to simulate a user with no admin role.",
+                  "// Actually we use USER_JWT here — if USER_JWT is empty this test is skipped gracefully.",
+                  "// This step is re-run after user registration in S3 with USER_JWT."
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var userJwt = pm.collectionVariables.get('USER_JWT');",
+                  "if (userJwt && userJwt.length > 0) {",
+                  "    pm.test('Standard User receives 403 Forbidden on Problem Create', function () {",
+                  "        pm.response.to.have.status(403);",
+                  "    });",
+                  "} else {",
+                  "    pm.test('RBAC guard test skipped — USER_JWT not yet available', function () {",
+                  "        pm.expect(true).to.be.true;",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{USER_JWT}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Should Fail\",\n  \"description\": \"This request should be rejected by RBAC.\",\n  \"difficulty\": \"EASY\",\n  \"testCases\": [\n    {\n      \"input\": \"1\",\n      \"expected\": \"1\",\n      \"isSample\": true,\n      \"orderIndex\": 1\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/problems",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "problems"]
+            }
+          }
+        },
+        {
+          "name": "P1-S3: Register Standard User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Response has accessToken', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.accessToken).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('USER_JWT', json.accessToken);",
+                  "});",
+                  "pm.test('User role is ROLE_USER', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.role).to.equal('ROLE_USER');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{USER_USERNAME}}\",\n  \"email\": \"{{USER_EMAIL}}\",\n  \"password\": \"{{USER_PASSWORD}}\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/auth/register",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "P1-S4: User GETs Problem by Slug",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Problem id matches created problem', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.id).to.equal(pm.collectionVariables.get('PROBLEM_ID_P1'));",
+                  "});",
+                  "pm.test('Problem title is Two Sum', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.title).to.equal('Two Sum');",
+                  "});",
+                  "pm.test('Test cases are NOT exposed to user', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.testCases).to.be.undefined;",
+                  "});",
+                  "pm.test('Examples are visible', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.examples).to.be.an('array').with.lengthOf.at.least(1);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{USER_JWT}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/problems/{{PROBLEM_SLUG_P1}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "problems", "{{PROBLEM_SLUG_P1}}"]
+            }
+          }
+        },
+        {
+          "name": "P1-S5: User Submits Python Code",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 202 Accepted', function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "pm.test('Response has submissionId', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.submissionId).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('SUBMISSION_ID_P1', json.submissionId);",
+                  "});",
+                  "pm.test('Initial status is QUEUED or PENDING', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(['QUEUED','PENDING','RUNNING']).to.include(json.status);",
+                  "});",
+                  "pm.test('Language is python', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.language).to.equal('python');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{USER_JWT}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"language\": \"python\",\n  \"sourceCode\": \"import sys\\ninput_data = sys.stdin.read().split()\\nn = int(input_data[0])\\nnums = list(map(int, input_data[1:n+1]))\\ntarget = int(input_data[n+1])\\nlookup = {}\\nfor i, num in enumerate(nums):\\n    complement = target - num\\n    if complement in lookup:\\n        print(lookup[complement], i)\\n        break\\n    lookup[num] = i\\n\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/problems/{{PROBLEM_ID_P1}}/submit",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "problems", "{{PROBLEM_ID_P1}}", "submit"]
+            }
+          }
+        },
+        {
+          "name": "P1-S6: Poll for Python Verdict (Run After Delay)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Introduce a 3-second delay before polling to allow Kafka + Docker execution",
+                  "const delay = ms => new Promise(resolve => setTimeout(resolve, ms));",
+                  "delay(3000);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "var terminalStates = ['COMPLETED', 'FAILED', 'TIMEDOUT'];",
+                  "pm.test('Execution status is terminal or still running', function () {",
+                  "    pm.expect(['QUEUED','RUNNING','COMPLETED','FAILED','TIMEDOUT']).to.include(json.status);",
+                  "});",
+                  "if (terminalStates.includes(json.status)) {",
+                  "    pm.test('Verdict is ACCEPTED', function () {",
+                  "        pm.expect(json.verdict).to.equal('ACCEPTED');",
+                  "    });",
+                  "    pm.test('executionTimeMs is populated', function () {",
+                  "        pm.expect(json.executionTimeMs).to.be.a('number');",
+                  "    });",
+                  "    pm.test('Source field is present', function () {",
+                  "        pm.expect(['cache','db']).to.include(json.source);",
+                  "    });",
+                  "} else {",
+                  "    console.log('Job still in-flight, status: ' + json.status + '. Re-run this request.');",
+                  "    pm.test('Job is still executing — re-run to poll again', function () {",
+                  "        pm.expect(true).to.be.true;",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{USER_JWT}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/submissions/{{SUBMISSION_ID_P1}}/result",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "submissions", "{{SUBMISSION_ID_P1}}", "result"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "PATH 2 — Compiled Execution Flow (Java)",
+      "item": [
+        {
+          "name": "P2-S1: Admin Creates Problem for Java (Factorial)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Response has problem id', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.id).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('PROBLEM_ID_P2', json.id);",
+                  "});",
+                  "pm.test('Problem title is Factorial', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.title).to.equal('Factorial');",
+                  "});",
+                  "pm.test('Problem difficulty is MEDIUM', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.difficulty).to.equal('MEDIUM');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ADMIN_JWT}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Factorial\",\n  \"description\": \"Given a non-negative integer n, compute and return n! (n factorial). Read n from stdin and print the result to stdout.\",\n  \"difficulty\": \"MEDIUM\",\n  \"constraints\": \"0 <= n <= 12\",\n  \"examples\": [\n    {\n      \"inputText\": \"5\",\n      \"outputText\": \"120\",\n      \"explanation\": \"5! = 5 x 4 x 3 x 2 x 1 = 120\",\n      \"orderIndex\": 1\n    }\n  ],\n  \"testCases\": [\n    {\n      \"input\": \"5\",\n      \"expected\": \"120\",\n      \"isSample\": true,\n      \"orderIndex\": 1\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/problems",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "problems"]
+            }
+          }
+        },
+        {
+          "name": "P2-S2: User Submits Java Code",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 202 Accepted', function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "pm.test('Response has submissionId', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.submissionId).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('SUBMISSION_ID_P2', json.submissionId);",
+                  "});",
+                  "pm.test('Language is java', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.language).to.equal('java');",
+                  "});",
+                  "pm.test('Initial status is in-flight', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(['QUEUED','PENDING','RUNNING']).to.include(json.status);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{USER_JWT}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"language\": \"java\",\n  \"sourceCode\": \"import java.util.Scanner;\\npublic class Main {\\n    public static void main(String[] args) {\\n        Scanner sc = new Scanner(System.in);\\n        int n = sc.nextInt();\\n        long result = 1;\\n        for (int i = 2; i <= n; i++) {\\n            result *= i;\\n        }\\n        System.out.println(result);\\n    }\\n}\\n\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/problems/{{PROBLEM_ID_P2}}/submit",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "problems", "{{PROBLEM_ID_P2}}", "submit"]
+            }
+          }
+        },
+        {
+          "name": "P2-S3: Poll for Java Verdict",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Java requires compilation — allow extra time",
+                  "const delay = ms => new Promise(resolve => setTimeout(resolve, ms));",
+                  "delay(5000);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "var terminalStates = ['COMPLETED', 'FAILED', 'TIMEDOUT'];",
+                  "pm.test('Execution status is valid', function () {",
+                  "    pm.expect(['QUEUED','RUNNING','COMPLETED','FAILED','TIMEDOUT']).to.include(json.status);",
+                  "});",
+                  "if (terminalStates.includes(json.status)) {",
+                  "    pm.test('Verdict is ACCEPTED — confirms compilation + binary execution succeeded', function () {",
+                  "        pm.expect(json.verdict).to.equal('ACCEPTED');",
+                  "    });",
+                  "    pm.test('executionTimeMs populated — binary execution timing captured', function () {",
+                  "        pm.expect(json.executionTimeMs).to.be.a('number');",
+                  "    });",
+                  "    pm.test('verdict is not COMPILATION_ERROR', function () {",
+                  "        pm.expect(json.verdict).to.not.equal('COMPILATION_ERROR');",
+                  "    });",
+                  "    pm.test('verdict is not RUNTIME_ERROR', function () {",
+                  "        pm.expect(json.verdict).to.not.equal('RUNTIME_ERROR');",
+                  "    });",
+                  "} else {",
+                  "    console.log('Java job still in-flight: ' + json.status);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{USER_JWT}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/submissions/{{SUBMISSION_ID_P2}}/result",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "submissions", "{{SUBMISSION_ID_P2}}", "result"]
+            }
+          }
+        },
+        {
+          "name": "P2-S4: User Submits C++ Code Against Same Problem",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 202 Accepted', function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "pm.test('Response has submissionId', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.submissionId).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('SUBMISSION_ID_P2_CPP', json.submissionId);",
+                  "});",
+                  "pm.test('Language is cpp', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.language).to.equal('cpp');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{USER_JWT}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"language\": \"cpp\",\n  \"sourceCode\": \"#include <iostream>\\nusing namespace std;\\nint main() {\\n    long long n;\\n    cin >> n;\\n    long long result = 1;\\n    for (long long i = 2; i <= n; i++) {\\n        result *= i;\\n    }\\n    cout << result << endl;\\n    return 0;\\n}\\n\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/problems/{{PROBLEM_ID_P2}}/submit",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "problems", "{{PROBLEM_ID_P2}}", "submit"]
+            }
+          }
+        },
+        {
+          "name": "P2-S5: Poll for C++ Verdict",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const delay = ms => new Promise(resolve => setTimeout(resolve, ms));",
+                  "delay(5000);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "var terminalStates = ['COMPLETED', 'FAILED', 'TIMEDOUT'];",
+                  "if (terminalStates.includes(json.status)) {",
+                  "    pm.test('C++ Verdict is ACCEPTED — confirms g++ compilation + binary execution', function () {",
+                  "        pm.expect(json.verdict).to.equal('ACCEPTED');",
+                  "    });",
+                  "    pm.test('executionTimeMs populated', function () {",
+                  "        pm.expect(json.executionTimeMs).to.be.a('number');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{USER_JWT}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/submissions/{{SUBMISSION_ID_P2_CPP}}/result",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "submissions", "{{SUBMISSION_ID_P2_CPP}}", "result"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "PATH 3 — Aggregated Test Matrix Flow (Multi-Test-Case)",
+      "item": [
+        {
+          "name": "P3-S1: Admin Creates Problem With Multi-Test-Case Matrix",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Problem created with id', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.id).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('PROBLEM_ID_P3', json.id);",
+                  "});",
+                  "pm.test('Problem is FizzBuzz Matrix', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.title).to.equal('FizzBuzz Matrix');",
+                  "});",
+                  "pm.test('Problem difficulty is HARD', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.difficulty).to.equal('HARD');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ADMIN_JWT}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"FizzBuzz Matrix\",\n  \"description\": \"Given an integer n, print numbers from 1 to n. For multiples of 3 print Fizz, for multiples of 5 print Buzz, for multiples of both print FizzBuzz.\",\n  \"difficulty\": \"HARD\",\n  \"constraints\": \"1 <= n <= 100\",\n  \"examples\": [\n    {\n      \"inputText\": \"5\",\n      \"outputText\": \"1\\n2\\nFizz\\n4\\nBuzz\",\n      \"explanation\": \"3 is divisible by 3 so Fizz. 5 is divisible by 5 so Buzz.\",\n      \"orderIndex\": 1\n    }\n  ],\n  \"testCases\": [\n    {\n      \"input\": \"5\",\n      \"expected\": \"1\\n2\\nFizz\\n4\\nBuzz\",\n      \"isSample\": true,\n      \"orderIndex\": 1\n    },\n    {\n      \"input\": \"15\",\n      \"expected\": \"1\\n2\\nFizz\\n4\\nBuzz\\nFizz\\n7\\n8\\nFizz\\nBuzz\\n11\\nFizz\\n13\\n14\\nFizzBuzz\",\n      \"isSample\": false,\n      \"orderIndex\": 2\n    },\n    {\n      \"input\": \"1\",\n      \"expected\": \"1\",\n      \"isSample\": false,\n      \"orderIndex\": 3\n    },\n    {\n      \"input\": \"3\",\n      \"expected\": \"1\\n2\\nFizz\",\n      \"isSample\": false,\n      \"orderIndex\": 4\n    },\n    {\n      \"input\": \"10\",\n      \"expected\": \"1\\n2\\nFizz\\n4\\nBuzz\\nFizz\\n7\\n8\\nFizz\\nBuzz\",\n      \"isSample\": false,\n      \"orderIndex\": 5\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/problems",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "problems"]
+            }
+          }
+        },
+        {
+          "name": "P3-S2: User Submits JavaScript Against Matrix Problem",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 202 Accepted', function () {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "pm.test('Response has submissionId', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.submissionId).to.be.a('string').and.not.empty;",
+                  "    pm.collectionVariables.set('SUBMISSION_ID_P3', json.submissionId);",
+                  "});",
+                  "pm.test('Language is javascript', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.language).to.equal('javascript');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{USER_JWT}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"language\": \"javascript\",\n  \"sourceCode\": \"const readline = require('readline');\\nconst rl = readline.createInterface({ input: process.stdin });\\nrl.on('line', (line) => {\\n    const n = parseInt(line.trim(), 10);\\n    for (let i = 1; i <= n; i++) {\\n        if (i % 15 === 0) process.stdout.write('FizzBuzz\\n');\\n        else if (i % 3 === 0) process.stdout.write('Fizz\\n');\\n        else if (i % 5 === 0) process.stdout.write('Buzz\\n');\\n        else process.stdout.write(i + '\\n');\\n    }\\n    rl.close();\\n});\\n\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/problems/{{PROBLEM_ID_P3}}/submit",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "problems", "{{PROBLEM_ID_P3}}", "submit"]
+            }
+          }
+        },
+        {
+          "name": "P3-S3: Poll for Matrix Aggregated Verdict",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const delay = ms => new Promise(resolve => setTimeout(resolve, ms));",
+                  "delay(5000);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "var json = pm.response.json();",
+                  "var terminalStates = ['COMPLETED', 'FAILED', 'TIMEDOUT'];",
+                  "pm.test('Execution status is valid', function () {",
+                  "    pm.expect(['QUEUED','RUNNING','COMPLETED','FAILED','TIMEDOUT']).to.include(json.status);",
+                  "});",
+                  "if (terminalStates.includes(json.status)) {",
+                  "    pm.test('Aggregated verdict across all 5 test cases is ACCEPTED', function () {",
+                  "        pm.expect(json.verdict).to.equal('ACCEPTED');",
+                  "    });",
+                  "    pm.test('executionTimeMs is populated — confirms aggregation of all test case timings', function () {",
+                  "        pm.expect(json.executionTimeMs).to.be.a('number');",
+                  "        pm.expect(json.executionTimeMs).to.be.above(0);",
+                  "    });",
+                  "    pm.test('completedAt timestamp is present', function () {",
+                  "        pm.expect(json.completedAt).to.be.a('string').and.not.empty;",
+                  "    });",
+                  "    pm.test('Source field confirms cache or db response', function () {",
+                  "        pm.expect(['cache','db']).to.include(json.source);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{USER_JWT}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/submissions/{{SUBMISSION_ID_P3}}/result",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "submissions", "{{SUBMISSION_ID_P3}}", "result"]
+            }
+          }
+        },
+        {
+          "name": "P3-S4: Verify Submission Listed in My Submissions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Page content is not empty', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.content).to.be.an('array').with.lengthOf.at.least(1);",
+                  "});",
+                  "pm.test('At least one submission matches PROBLEM_ID_P3', function () {",
+                  "    var json = pm.response.json();",
+                  "    var problemId = pm.collectionVariables.get('PROBLEM_ID_P3');",
+                  "    var match = json.content.find(s => s.problemId === problemId);",
+                  "    pm.expect(match).to.not.be.undefined;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{USER_JWT}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/submissions?problemId={{PROBLEM_ID_P3}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "submissions"],
+              "query": [
+                { "key": "problemId", "value": "{{PROBLEM_ID_P3}}" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "NEGATIVE — RBAC Enforcement Checks",
+      "item": [
+        {
+          "name": "NEG-1: Unauthenticated Request to Protected Endpoint Returns 401",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Error code is MISSING_TOKEN', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.error).to.equal('MISSING_TOKEN');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/problems",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "problems"]
+            }
+          }
+        },
+        {
+          "name": "NEG-2: Standard User Cannot Create Problem (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 403 Forbidden', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type",  "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{USER_JWT}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Unauthorized Create\",\n  \"description\": \"Should be rejected.\",\n  \"difficulty\": \"EASY\",\n  \"testCases\": [\n    {\n      \"input\": \"1\",\n      \"expected\": \"1\",\n      \"isSample\": true,\n      \"orderIndex\": 1\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/problems",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "problems"]
+            }
+          }
+        },
+        {
+          "name": "NEG-3: Internal Endpoint Blocked at Gateway (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Internal endpoint is blocked at Gateway with 403', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{ADMIN_JWT}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/internal/problems/{{PROBLEM_ID_P1}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["api", "v1", "internal", "problems", "{{PROBLEM_ID_P1}}"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

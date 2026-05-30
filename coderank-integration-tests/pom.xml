@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.coderank</groupId>
+        <artifactId>coderank-parent</artifactId>
+        <version>1.0.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>coderank-integration-tests</artifactId>
+    <name>coderank-integration-tests</name>
+    <description>
+        End-to-end integration tests for the CodeRank platform.
+        All requests pass through the API Gateway on port 8080.
+        Requires the full stack to be running before execution.
+    </description>
+    <packaging>jar</packaging>
+
+    <properties>
+        <!-- FIX 2: Default value MUST be declared here so Maven and IntelliJ
+             can resolve ${skip.integration} in the surefire configuration.
+             true  = tests are skipped during a normal `mvn install`
+             false = tests run; activated via -Pintegration or command line -->
+        <skip.integration>true</skip.integration>
+
+        <!-- Gateway base URL — override at runtime with -DBASE_URL=... -->
+        <BASE_URL>http://localhost:8080</BASE_URL>
+    </properties>
+
+    <dependencies>
+        <!-- FIX 1: Hardcode the version directly on the dependency.
+             Do NOT use a BOM import or a property reference here —
+             this module has no parent-managed RestAssured version to inherit. -->
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <version>5.4.0</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- IMPORTANT: rest-assured must be declared BEFORE junit.
+             This ensures RestAssured's Hamcrest version wins over
+             JUnit's older transitive pull, preventing NoSuchMethodError. -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.hamcrest</groupId>
+            <artifactId>hamcrest</artifactId>
+            <version>2.2</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Now resolves cleanly because ${skip.integration}
+                         has a default value declared in <properties> above -->
+                    <skipTests>${skip.integration}</skipTests>
+                    <systemPropertyVariables>
+                        <BASE_URL>${BASE_URL}</BASE_URL>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>integration</id>
+            <properties>
+                <!-- Overrides the default true → false when -Pintegration is passed -->
+                <skip.integration>false</skip.integration>
+            </properties>
+        </profile>
+    </profiles>
+
+</project>

@@ -20,6 +20,7 @@
         <module>coderank-submission</module>
         <module>coderank-execution</module>
         <module>coderank-result-processor</module>
+<!--        <module>coderank-integration-tests</module>-->
     </modules>
 
     <properties>
